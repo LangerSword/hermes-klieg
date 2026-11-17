@@ -10,6 +10,7 @@ Prints PASS/FAIL per step.
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -23,16 +24,30 @@ SERVER = os.path.join(REPO, "blender/klieg_headless_server.py")
 results = []
 
 
+def find_blender():
+    override = os.environ.get("KLIEG_BLENDER")
+    if override and os.path.isfile(override) and os.access(override, os.X_OK):
+        return override
+    return shutil.which("blender")
+
+
 def check(name, ok, detail=""):
     results.append((name, ok))
     print(f"{'PASS' if ok else 'FAIL'}  {name:34s} {detail}")
 
 
 def main() -> int:
+    blender = find_blender()
+    if not blender:
+        print("SKIP: blender not installed (set KLIEG_BLENDER to a real Blender binary)")
+        return 0
+    if os.environ.get("KLIEG_BLENDER") and "fixture" in os.path.basename(blender).lower():
+        print("SKIP: KLIEG_BLENDER points at a fixture, not a real Blender")
+        return 0
     sock = os.path.join(tempfile.mkdtemp(prefix="klieg-bridge-"), "b.sock")
     env = {"PATH": "/usr/bin:/bin", "HOME": os.environ.get("HOME", "/tmp")}
     proc = subprocess.Popen(
-        ["/usr/bin/blender", "-b", "--factory-startup", "--python", SERVER, "--", sock],
+        [blender, "-b", "--factory-startup", "--python", SERVER, "--", sock],
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=env,
         start_new_session=True)
 

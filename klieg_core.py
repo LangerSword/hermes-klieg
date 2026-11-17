@@ -19,10 +19,22 @@ import time
 import uuid
 
 PLUGIN = "klieg"
+JOB_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+
+
+def valid_job_id(job: str) -> bool:
+    return bool(JOB_ID_RE.fullmatch(job or ""))
 
 
 def data_dir() -> str:
-    base = os.environ.get("HERMES_PLUGIN_DATA") or os.path.expanduser("~/.hermes/plugin-data")
+    """Per-profile data dir. HERMES_PLUGIN_DATA overrides; else derive from HERMES_HOME.
+
+    Using ~/.hermes directly made every profile share jobs. HERMES_HOME is the active
+    profile root, so jobs stay isolated.
+    """
+    base = (os.environ.get("HERMES_PLUGIN_DATA")
+            or os.path.join(os.environ.get("HERMES_HOME") or os.path.expanduser("~/.hermes"),
+                            "plugin-data"))
     p = os.path.join(base, PLUGIN)
     os.makedirs(p, exist_ok=True)
     return p
@@ -34,8 +46,18 @@ def jobs_dir() -> str:
     return p
 
 
+def _job_dir(job: str) -> str:
+    if not valid_job_id(job):
+        raise ValueError(f"invalid job id: {job!r}")
+    p = os.path.realpath(os.path.join(jobs_dir(), job))
+    root = os.path.realpath(jobs_dir())
+    if os.path.commonpath([p, root]) != root:
+        raise ValueError(f"job path escapes jobs dir: {job!r}")
+    return p
+
+
 def _status_path(job: str) -> str:
-    return os.path.join(jobs_dir(), job, "status.json")
+    return os.path.join(_job_dir(job), "status.json")
 
 
 def read_status(job: str) -> dict:
@@ -57,7 +79,7 @@ def _write_status(job_id: str, **kw) -> None:
 
 
 def tail(job: str, lines: int = 40) -> str:
-    p = os.path.join(jobs_dir(), job, "log.txt")
+    p = os.path.join(_job_dir(job), "log.txt")
     if not os.path.exists(p):
         return ""
     with open(p, "rb") as f:
