@@ -111,6 +111,9 @@ def h_run(args: dict) -> str:
 
 def h_render(args: dict) -> str:
     dcc = args.get("dcc", "blender")
+    frames, ferr = parse_frames(args["frames"])
+    if ferr or not frames:
+        return _j({"ok": False, "error": ferr or "frames is empty"})
     ad = A.get(dcc)
     if not ad.detect().get("found"):
         return _j({"error": f"{dcc} not found"})
@@ -118,9 +121,6 @@ def h_render(args: dict) -> str:
     if held:
         return _j({"error": "one GPU, one render: another job holds the lock",
                    "held_by": held})
-    frames, ferr = parse_frames(args["frames"])
-    if ferr or not frames:
-        return _j({"ok": False, "error": ferr or "frames is empty"})
     outdir = os.path.abspath(args["outdir"])
     argv = ad.render_argv(frames, outdir, int(args.get("samples", 128)),
                           int(args.get("pct", 100)), args["blend"], args.get("tag", ""))
