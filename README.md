@@ -1,189 +1,140 @@
-# Klieg — a DCC bridge for Hermes
+# Klieg
 
-**Give the agent hands on the tools that make pictures.**
+A DCC bridge for Hermes.
 
-Hermes can write a render script in one breath and then lose the next hour to it: a
-70-minute Cycles pass wedges the interactive terminal, the shell times out, and the exit
-code that told you whether the frames were written is gone. Klieg exists because that is
-not a Blender problem, it is a *bridge* problem — and it is the same problem in Houdini,
-Nuke, C4D, After Effects and Resolve.
+Hermes writes a render script in one second. Then the render runs for forty minutes. The
+shell times out. The exit code is lost. You do not know if the frames exist.
 
-One adapter interface, twelve verbs, and a job engine that assumes the shell will die.
+Klieg moves that work into a job. The job is detached. It writes a log. It writes its own
+exit code. Klieg calls the job done only when the files on disk are newer than the job start.
 
-**[how it works](docs/media/whiteboard.png)** · the recorded session is committed as
-[`docs/media/cast.json`](docs/media/cast.json) (real PTY bytes, timestamped), and
-`scripts/make_demo_v2.py` cuts it into a video from that recording, the frames the job wrote,
-and the diagram. `scripts/qa_demo.py` measures the finished file and prints PASS/FAIL.
+**[Catalog entry](catalog/klieg.yaml)** · if this is useful, a star helps the next person find it.
 
-[![How Klieg works](docs/media/whiteboard.png)](docs/media/whiteboard.png)
+![how klieg works](docs/media/whiteboard.png)
 
-*Hand-drawn wall notes: agent → approval gate → adapter → host → job dir → **verify by mtime**.*
-*A frame count is not evidence. mtime(newest artefact) > started_at(job) is.*
+*Whiteboard: agent, approval gate, adapter, job directory, verify. 1600x900.*
 
-## The eight verbs
+![6 seconds of the demo](docs/media/demo_preview.gif)
 
-| tool | what it actually settles |
+*Six seconds from [`docs/media/klieg_demo.mp4`](docs/media/klieg_demo.mp4), 83 s, recorded
+from the real CLI. The frames in it were written by the job in that recording.*
+
+## Five decisions
+
+**1. A job is done only when its artefact is newer than the job start.**
+`klieg_jobs action=verify` compares each expected file with the job start time. It also
+counts the frames. A render that stops at frame 3 of 288 fails. A render that emits 288
+frames from a scene that did not rebuild fails.
+
+**2. Plan costs nothing.**
+`klieg_plan` returns the argv, the expected files, a predicted duration, and the blockers.
+It does not start a render. Check a weak model in one call, before it spends an hour.
+
+**3. One GPU, one render.**
+`klieg_render` takes a lock for each host. A second render enters the queue and reports its
+position. `queue=false` refuses the render.
+
+**4. Approval is per verb.**
+Six verbs execute code or use the GPU. Each verb sends an approval request. Read-only verbs
+do not. Unattended runs fail closed.
+
+**5. Colour is a record, not a tag.**
+`klieg_colour action=write` stores the view transform, the look, the exposure, and the
+sha256 of the OCIO config in `colour_manifest.json`. `action=compare` reports each field
+that changed. A different view transform gives a different film.
+
+## Tools
+
+| tool | use |
 |---|---|
-| `klieg_probe` | what is installed, at what version, and where |
-| `klieg_plan` | **resolve a render without running it**: argv, expected files, predicted duration, every blocker |
-| `klieg_scene` | engine, resolution, frame range, view transform, objects, vertex totals |
-| `klieg_run` | run a script inside the host — blocking for a probe, detached for anything long |
-| `klieg_render` | a frame range as a resumable job; **queues** behind the GPU holder instead of refusing |
-| `klieg_track` | run a projection/tracking script and confirm the JSON it owed you |
-| `klieg_gate` | run a measurement script that must print `KLIIEG_GATE {json}` |
-| `klieg_jobs` | list / queue / status / log / **verify** / kill |
-| `klieg_publish` | encode with explicit BT.709 and the colour tags in the bitstream |
-| `klieg_session` | **live bridge** into a running Blender: start, eval, read colour state, stop |
-| `klieg_colour` | colour management beyond tags: probe, manifest with the OCIO hash, diff, verify tags |
-| `klieg_taste` | learn what you accept: record verdicts, train, score a frame and show what moved it |
+| `klieg_probe` | list the hosts on this machine and their versions |
+| `klieg_plan` | resolve a render without running it |
+| `klieg_scene` | read the engine, resolution, frame range, view transform, and object count |
+| `klieg_run` | run a script in a host; detach it when it is long |
+| `klieg_render` | render a frame range as a job that can resume |
+| `klieg_track` | run a projection script and confirm the file it wrote |
+| `klieg_gate` | run a measurement script that prints `KLIIEG_GATE {json}` |
+| `klieg_jobs` | list, queue, status, log, verify, kill |
+| `klieg_publish` | encode frames with BT.709 conversion and colour tags |
+| `klieg_session` | open a socket to a running Blender, run code, read colour state, stop |
+| `klieg_colour` | write, compare, or check a colour manifest |
+| `klieg_taste` | record verdicts, train a preference, score a frame |
 
-## Four design decisions that matter more than the code
+## Run it
 
-**1. A job is not done when the process exits — it is done when the artefact is newer than
-the job started.** `klieg_jobs action=verify` compares each promised file's mtime against
-the launch time. This is the exact failure that ate four hours on a real film: a render
-job launched against a blend that had failed to rebuild, emitted a full 288-frame count of
-the previous geometry, and reported success. A count is not evidence. An mtime is.
+```sh
+git clone https://github.com/LangerSword/hermes-klieg ~/.hermes/plugins/klieg
+hermes plugins enable klieg
+# Start a new session. Then list the hosts:
+klieg_probe
 
-**2. Plan is free; a wrong render is an hour.** `klieg_plan` resolves the argv, the exact
-files the pass must produce, a duration predicted from this machine's own history, and every
-reason it would fail — without touching the GPU. A weak model can be checked against a plan
-in milliseconds. The alternative is discovering the mistake at minute 40.
+# Proof 1: render two frames, verify them, encode them.
+python3 scripts/e2e.py
 
-**3. One GPU, one render is enforced, not requested — and a second request queues rather
-than fails.** `klieg_render` takes a lock keyed by the host. With `queue=true` (the default)
-the second job is created in the `queued` state and starts the moment the holder exits, with
-its position reported; `queue=false` refuses outright. Either way, two Cycles processes never
-land on one GPU, because that is how you get a machine that looks hung.
+# Proof 2: start a real Blender and drive it over a socket.
+python3 scripts/test_bridge.py
 
-**4. Approval is per verb, not per plugin.** Five tools execute model-authored code or
-spend GPU time and go through Hermes's human gate (`klieg:*` rule keys). Probing and scene
-inspection stay silent. Unattended runs fail closed.
+# The test suite. No Blender and no GPU are necessary.
+python3 -m unittest discover -s tests
+```
 
-## Adapters
-
-| host | 0.1 status | mechanism |
-|---|---|---|
-| Blender | **working** | `blender -b --factory-startup <blend> -P <script> -- <args>` |
-| Houdini | declared | `hython script.py` |
-| Nuke | declared | `nuke -t script.py` |
-| Cinema 4D | declared | version probe only |
-| After Effects | declared, not driven | ExtendScript/UXP — reported present-but-unsupported, never silently missing |
-| Resolve | declared, not driven | headless scripting needs a running Fusion session |
-
-**Every Blender launch goes through a sanitised `PATH`.** Blender resolves its stdlib from
-the first `python3.X` on PATH; a pyenv/uv/conda prefix ahead of `/usr/bin` makes it adopt
-that home and lose `math`, so Cycles never registers and the engine enum reports only
-EEVEE. It reads exactly like a broken install. It is not.
-
-## Where Klieg sits next to the official `blender` plugin
-
-The catalog already has `blender` — a wrapper around Blender Lab's MCP server that drives a
-**live, open Blender** over loopback:9876. That plugin is for poking a scene in front of you.
-Its own docs are explicit about what it does not do: *"liveness detection (whether Blender and
-its bridge are running) is not verified or implemented"*, *"MCP tool listing alone does not
-establish scene readiness"*, and nothing at all about a render that takes an hour.
-
-Klieg is the other half:
-
-| | official `blender` (MCP) | Klieg |
-|---|---|---|
-| target | a live UI session | a batch process |
-| readiness | not implemented (their words) | `klieg_probe` + `klieg_scene` return real scene data |
-| long jobs | not addressed | detached, logged, resumable, **artefact-verified** |
-| failure mode | bridge dies with the app | exit code survives the shell; stale artefacts are caught |
-| scope | Blender | six hosts behind one adapter interface |
-| delivery | none | BT.709 encode with colour tags in the bitstream |
-
-They compose: use the MCP plugin to art-direct a shot interactively, then hand the same scene
-to Klieg for the pass that must not lie about finishing. Klieg does not require or replace it.
+Blender finds its Python library from the first `python3` on `PATH`. A pyenv or conda entry
+breaks that lookup. Run Blender with `PATH=/usr/bin:/bin`.
 
 ## Evidence
 
 | check | command | result |
 |---|---|---|
-| unit tests | `python3 -W error::ResourceWarning -m unittest discover -s tests` | 24 tests, OK, no warnings |
-| end-to-end | `python3 scripts/e2e.py` | 2 frames rendered → verified → encoded, [20,844 bytes](docs/media/e2e_ig.mp4) |
-| admission | `hermes plugins validate .` | validation passed |
-| runtime | `hermes plugins doctor .` | 9 tools, 1 hook registered |
+| tests | `python3 -W error::ResourceWarning -m unittest discover -s tests` | 38 tests, OK, no warnings |
+| live bridge | `python3 scripts/test_bridge.py` | 10 of 10 checks against Blender 5.3.0 |
+| end to end | `python3 scripts/e2e.py` | 2 frames rendered, verified, encoded, 20,844 bytes |
+| plugin admission | `hermes plugins validate .` | validation passed |
+| registration | `hermes plugins doctor .` | 12 tools, 1 hook |
 
-Full detail, including everything **not** verified, is in [VERIFICATION.md](VERIFICATION.md).
+`VERIFICATION.md` gives each check with its output, and each claim that is not verified.
 
-## Install
+## Limits
 
-```sh
-git clone https://github.com/LangerSword/hermes-klieg ~/.hermes/plugins/klieg
-hermes plugins enable klieg
-# next session:
-klieg_probe
-```
-
-## Live bridge, colour, and taste
-
-**The bridge is a real socket, not a poll.** `klieg_session action=start` launches Blender with
-`blender/klieg_headless_server.py` on a unix socket in your runtime directory (mode 0600);
-`blender/klieg_addon.py` does the same for a GUI session you already have open. The wire is one
-JSON object per line. Three behaviours make it survivable: a per-call timeout, a distinct
-`BridgeTimeout` for *connected but silent* (Blender is modal, retry) versus `BridgeUnavailable`
-(nothing listening, use batch), and execution on the host's main thread through a queue plus
-`bpy.app.timers`, because `bpy` is not thread-safe and a socket thread that touches it
-segfaults the UI.
-
-```bash
-python3 scripts/test_bridge.py     # launches real Blender, drives it, shuts it down
-# 10/10: ping, info, eval mutates the scene, reads colour, error-as-data, survives, clean exit
-```
-
-**Colour is recorded, not just tagged.** `klieg_colour action=write` stores
-`colour_manifest.json` beside the frames: display device, view transform, look, exposure, gamma,
-film-transparent, bit depth, and the **sha256 of the OCIO config**. `action=compare` diffs it
-against the current scene, and one field difference — `AgX` where the film was graded under
-Khronos PBR Neutral — reports `same_film: false`. That is the silent failure this exists for:
-every frame subtly wrong while every existing gate still passes.
-
-**Taste is learned from you, and says so.** `klieg_taste action=record` takes a frame and your
-accept/reject plus a reason. `action=train` fits a standardised logistic regression over 23
-measurable features (exposure percentiles, clipping, contrast, saturation, 12 hue buckets,
-edge density, where the detail sits, vignette, green fraction, palette adherence). `action=score`
-returns `p_accept` **and the features that moved it**, with the caveat and the verdict count
-attached. Below **12 verdicts it refuses to score** rather than inventing a preference, and it
-reports its own training accuracy so a confident number can never come from three examples.
+- This repository includes the GUI add-on. The tests do not cover it. This machine had no
+  interactive Blender. The headless server uses the same protocol, and it passes the bridge test.
+- The live bridge supports Blender only. Houdini, Nuke, and After Effects need their own
+  protocols.
+- The taste model has no real verdicts. It refuses to score below 12 verdicts.
+- `klieg_publish` has encoded two frames, not a full film.
 
 ## Security
 
-Read [SECURITY.md](SECURITY.md) before installing. The short version:
+Read `SECURITY.md` before you install.
 
-- five verbs execute model-authored code or spend GPU time and are approval-gated per call;
-  unattended runs fail closed
-- child processes get a 13-variable environment allow-list — never `os.environ` — and any name
-  matching `KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|SESSION` is dropped and recorded in the job
-  status
-- `klieg_publish` refuses to write under system and credential paths
-- Klieg is **not** a sandbox: an approved script is arbitrary code, and a scene file executes
-  when the host opens it
+- Children get a 13-variable environment allow-list.
+- Klieg drops any name that matches KEY, TOKEN, SECRET, or PASSWORD. It records the drop.
+- `klieg_publish` refuses to write under `/etc`, `/usr`, `~/.ssh`, and `~/.aws`.
+- Klieg is not a sandbox. An approved script is arbitrary code.
 
-## Limits, stated plainly
+## Stack
 
-- **No live UI bridge yet.** 0.1 drives batch/headless only. A socket into an open Blender
-  or AE session is the obvious 0.2, and it is per-host work: an addon inside the app, a
-  protocol, reconnection, and a rule for what happens when the app crashes mid-job.
-- **No colour management beyond tags.** Klieg writes BT.709 and tags the stream; it does not
-  run an OCIO config of its own.
-- **Gates do not know taste.** They return numbers. Whether the frame is good is the human's
-  call, and `klieg_gate` says so by returning measurements rather than a pass.
+| component | role |
+|---|---|
+| Python 3.10+ standard library | the plugin, the job engine, the socket client |
+| Blender 4.2 or later | the render host; 4.2 has the Khronos view transform |
+| ffmpeg | encode, colour tags, probe |
+| POSIX unix socket | the live bridge; no TCP port |
 
 ## Layout
 
 ```
-plugin.yaml        manifest (9 tools)
-__init__.py        register(ctx): tools + hook
-klieg_core.py      jobs, queue, history, locks, artefact verification
-klieg_adapters.py  six hosts, one interface
-klieg_tools.py     the 9 verbs: schema + handler
-klieg_hooks.py     per-verb approval policy
-scripts/           klieg_cli · capture_session · make_demo_v2 · qa_demo · e2e · make_whiteboard
-tests/             27 stdlib unittest cases, hermetic
-docs/media/        klieg_demo.mp4 · whiteboard.png · cast.json · storyboard.json · e2e_ig.mp4
-SECURITY.md        threat model: what is and is not protected
-VERIFICATION.md    what was measured, and what was not
+plugin.yaml           manifest: 12 tools
+klieg_core.py         jobs, queue, history, locks, verify
+klieg_adapters.py     six hosts, one interface
+klieg_tools.py        the verbs
+klieg_hooks.py        approval policy
+klieg_bridge.py       unix socket client
+klieg_colour.py       manifest, diff, tag check
+klieg_taste.py        features, verdicts, model
+blender/              headless server and GUI add-on
+scripts/              cli, e2e, bridge test, whiteboard, demo cutter, qa
+tests/                38 cases, hermetic
 ```
+
+MIT. The whiteboard, the demo, and the sample frames in this repository come from the
+scripts in `scripts/`.
