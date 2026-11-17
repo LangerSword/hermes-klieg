@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shlex
 import signal
 import subprocess
@@ -121,12 +122,33 @@ def _queue_position(job: str) -> int:
     return 0
 
 
+# The child gets a minimal environment. A DCC does not need the agent's provider
+# keys, tokens or cloud credentials, and passing os.environ wholesale is how a
+# render log ends up containing a secret.
+PASSTHROUGH = ("PATH", "HOME", "USER", "LOGNAME", "LANG", "LC_ALL", "LC_CTYPE",
+               "TERM", "TMPDIR", "TZ", "XDG_RUNTIME_DIR", "DISPLAY", "WAYLAND_DISPLAY")
+
+_SECRETISH = re.compile(r"(KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|SESSION)", re.I)
+
+
+def child_environment(extra: dict | None = None) -> tuple[dict, list[str]]:
+    """Allow-list the environment. Returns (env, dropped_names)."""
+    env = {k: os.environ[k] for k in PASSTHROUGH if k in os.environ}
+    env.setdefault("PATH", "/usr/bin:/bin")
+    dropped = []
+    for k, v in (extra or {}).items():
+        if _SECRETISH.search(k):
+            dropped.append(k)
+            continue
+        env[k] = v
+    return env, dropped
+
+
 def _spawn(job: str, name: str, spec: dict, dcc: str, what: str) -> dict:
     """Start an already-created job directory."""
     jd = os.path.join(jobs_dir(), job)
     log = os.path.join(jd, "log.txt")
-    child_env = dict(os.environ)
-    child_env.update(spec.get("env") or {})
+    child_env, dropped = child_environment(spec.get("env") or {})
     argv = spec["argv"]
 
     script = f"{shlex.join(argv)}; echo $? > {shlex.quote(os.path.join(jd, 'exit'))}"
@@ -142,7 +164,7 @@ def _spawn(job: str, name: str, spec: dict, dcc: str, what: str) -> dict:
                   state="running", started=time.time(), log=log,
                   cwd=spec.get("cwd") or os.getcwd(), argv=argv,
                   guard=spec.get("guard") or [], expect=spec.get("expect") or {},
-                  frames=spec.get("frames"))
+                  frames=spec.get("frames"), env_dropped=dropped)
     if dcc:
         _take_lock(dcc, job, proc.pid)
     _LIVE[job] = proc

@@ -270,10 +270,36 @@ def h_gate(args: dict) -> str:
                "stderr": (p.stderr or "")[-600:]})
 
 
+FORBIDDEN_WRITE = ("/etc", "/usr", "/bin", "/sbin", "/boot", "/dev", "/proc", "/sys",
+                   "/lib", "/opt", "/var/lib")
+FORBIDDEN_HOME = ("~/.ssh", "~/.aws", "~/.gnupg", "~/.config/hermes", "~/.hermes")
+
+
+def _write_allowed(path: str) -> str | None:
+    """Return a refusal reason, or None when the path is acceptable.
+
+    An encoder is not a privilege boundary, but writing a deliverable into /etc or
+    ~/.ssh is never what a user meant, and a model mistyping a path should be
+    corrected rather than obeyed.
+    """
+    ap = os.path.abspath(os.path.expanduser(path))
+    for bad in FORBIDDEN_WRITE:
+        if ap == bad or ap.startswith(bad + os.sep):
+            return f"refusing to write under {bad}"
+    for bad in FORBIDDEN_HOME:
+        b = os.path.abspath(os.path.expanduser(bad))
+        if ap == b or ap.startswith(b + os.sep):
+            return f"refusing to write under {bad}"
+    return None
+
+
 def h_publish(args: dict) -> str:
     """Encode with explicit BT.709 and the tags in the stream, or phones shift gamma."""
     frames = os.path.abspath(args["frames_dir"])
     out = os.path.abspath(args["out"])
+    refusal = _write_allowed(out)
+    if refusal:
+        return _j({"error": refusal, "out": out})
     if not os.path.isdir(frames):
         return _j({"error": f"frames_dir does not exist: {frames}"})
     if not any(n.endswith(".png") for n in os.listdir(frames)):

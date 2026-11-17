@@ -175,6 +175,29 @@ class AdapterContract(unittest.TestCase):
         self.assertIn("/usr/bin", A.SAFE_ENV["PATH"])
 
 
+class Security(unittest.TestCase):
+    def test_agent_secrets_do_not_reach_children(self):
+        os.environ["OPENAI_API_KEY"] = "sk-should-never-be-in-a-render-log"
+        env, dropped = core.child_environment({"MY_API_TOKEN": "abc", "PATH": "/usr/bin:/bin"})
+        self.assertNotIn("OPENAI_API_KEY", env)
+        self.assertIn("MY_API_TOKEN", dropped)
+        self.assertNotIn("MY_API_TOKEN", env)
+        self.assertEqual(env["PATH"], "/usr/bin:/bin")
+
+    def test_allowlist_keeps_what_a_dcc_needs(self):
+        env, _ = core.child_environment()
+        for k in ("PATH", "HOME"):
+            self.assertIn(k, env)
+
+    def test_publish_refuses_system_and_credential_paths(self):
+        bad = ("/etc/klieg.mp4", "/usr/local/klieg.mp4",
+               os.path.expanduser("~/.ssh/klieg.mp4"))
+        for out_path in bad:
+            res = json.loads(tools.h_publish({"frames_dir": "/tmp", "out": out_path}))
+            self.assertIn("error", res, out_path)
+            self.assertIn("refusing", res["error"])
+
+
 class Plan(unittest.TestCase):
     def test_plan_reports_blockers_without_running(self):
         out = json.loads(tools.h_plan({"blend": "/nope.blend", "frames": "0-3",
