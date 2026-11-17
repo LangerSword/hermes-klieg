@@ -21,6 +21,11 @@ import os
 import shutil
 import subprocess
 
+try:  # loaded as a Hermes plugin package
+    from . import klieg_core as core
+except ImportError:  # loaded standalone (tests, scripts)
+    import klieg_core as core
+
 # Blender resolves its stdlib from the first python3.X on PATH. A pyenv/uv/conda
 # prefix ahead of /usr/bin makes it adopt that home and lose `math`, which reads
 # as a broken install. Every launch goes through this env.
@@ -54,8 +59,7 @@ class Adapter:
 
     def version(self, path: str) -> str:
         try:
-            out = subprocess.run([path, "--version"], capture_output=True, text=True,
-                                 timeout=20, env={**os.environ, **SAFE_ENV})
+            out = core.run_child([path, "--version"], timeout=20, extra_env=SAFE_ENV)
             return (out.stdout or out.stderr).splitlines()[0].strip()
         except Exception as e:                      # noqa: BLE001 - report, never raise
             return f"unknown ({type(e).__name__})"
@@ -147,8 +151,7 @@ class Nuke(Adapter):
 
     def version(self, path):
         try:
-            out = subprocess.run([path, "-version"], capture_output=True, text=True,
-                                 timeout=20, env={**os.environ, **SAFE_ENV})
+            out = core.run_child([path, "-version"], timeout=20, extra_env=SAFE_ENV)
             return (out.stdout or out.stderr).splitlines()[0].strip()
         except Exception:
             return "unknown"

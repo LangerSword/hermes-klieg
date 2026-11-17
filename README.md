@@ -115,6 +115,7 @@ Read `SECURITY.md` before you install.
 | component | role |
 |---|---|
 | Python 3.10+ standard library | the plugin, the job engine, the socket client |
+| numpy, Pillow | `klieg_taste` frame features and scoring; declared in `plugin.yaml`, imported on demand |
 | Blender 4.2 or later | the render host; 4.2 has the Khronos view transform |
 | ffmpeg | encode, colour tags, probe |
 | POSIX unix socket | the live bridge; no TCP port |

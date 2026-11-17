@@ -74,8 +74,8 @@ def h_run(args: dict) -> str:
     if args.get("bg"):
         return _j(core.launch(args.get("name", "run"), argv, guard=args.get("guard") or [],
                               env=A.SAFE_ENV, dcc=dcc, what=args.get("script", "")))
-    p = subprocess.run(argv, capture_output=True, text=True, timeout=args.get("timeout", 600),
-                       cwd=os.getcwd(), env={**os.environ, **A.SAFE_ENV})
+    p = core.run_child(argv, timeout=args.get("timeout", 600), cwd=os.getcwd(),
+                       extra_env=A.SAFE_ENV)
     return _j({"exit": p.returncode,
                "stdout_tail": "\n".join((p.stdout or "").splitlines()[-40:]),
                "stderr_tail": "\n".join((p.stderr or "").splitlines()[-20:])})
@@ -224,8 +224,7 @@ def h_scene(args: dict) -> str:
     with open(script, "w") as f:
         f.write(SCENE_SCRIPT)
     argv = ad.run_argv(script, blend=args.get("blend"))
-    p = subprocess.run(argv, capture_output=True, text=True, timeout=300,
-                       env={**os.environ, **A.SAFE_ENV})
+    p = core.run_child(argv, timeout=300, extra_env=A.SAFE_ENV)
     for line in (p.stdout or "").splitlines():
         if line.startswith("KLIIEG_SCENE "):
             return line.split(" ", 1)[1]
@@ -240,8 +239,7 @@ def h_track(args: dict) -> str:
                        args=[args["out"]] if args.get("out") else None)
     if argv is None:
         return _j({"error": f"{dcc} cannot be driven headlessly in 0.1"})
-    p = subprocess.run(argv, capture_output=True, text=True, timeout=args.get("timeout", 1800),
-                       env={**os.environ, **A.SAFE_ENV})
+    p = core.run_child(argv, timeout=args.get("timeout", 1800), extra_env=A.SAFE_ENV)
     out = args.get("out")
     res = {"exit": p.returncode,
            "stdout_tail": "\n".join((p.stdout or "").splitlines()[-20:])}
@@ -264,8 +262,7 @@ def h_gate(args: dict) -> str:
                        args=[json.dumps(args.get("params") or {})])
     if argv is None:
         return _j({"error": f"{dcc} cannot be driven headlessly in 0.1"})
-    p = subprocess.run(argv, capture_output=True, text=True, timeout=args.get("timeout", 1800),
-                       env={**os.environ, **A.SAFE_ENV})
+    p = core.run_child(argv, timeout=args.get("timeout", 1800), extra_env=A.SAFE_ENV)
     for line in (p.stdout or "").splitlines():
         if line.startswith("KLIIEG_GATE "):
             try:
@@ -461,7 +458,15 @@ def h_colour(args: dict) -> str:
 
 # ------------------------------------------------------------------ taste
 def h_taste(args: dict) -> str:
+    """Taste verbs need numpy/Pillow; report a missing dep as data, never a trace."""
     action = args.get("action", "list")
+    pixel_actions = {"features", "record", "train", "score"}
+    if action in pixel_actions:
+        try:
+            taste_mod._deps()
+        except ImportError as e:
+            return _j({"error": f"optional dependency missing: {e}",
+                       "hint": "install numpy and Pillow to use klieg_taste pixel verbs"})
     if action == "features":
         path = args.get("frame")
         if not path or not os.path.exists(path):

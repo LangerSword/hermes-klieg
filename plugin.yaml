@@ -12,6 +12,9 @@ description: >
   measure the result instead of trusting it. Long GPU work never holds the
   interactive terminal, because that is what kills it.
 requires_hermes: ">=0.22.0"
+python_dependencies:
+  - "numpy>=1.26,<3"
+  - "Pillow>=10,<12"
 provides_hooks:
   - pre_tool_call
 provides_tools:

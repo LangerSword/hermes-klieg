@@ -23,20 +23,30 @@ import json
 import os
 import time
 
-import numpy as np
-from PIL import Image
-
 MIN_SAMPLES = 12
 DEFAULT_PALETTE = ("#0A1836", "#1D49C0", "#C9E6FF", "#5A1206", "#C4230E", "#FF6A1A", "#FFE8D2")
 
 
+def _deps():
+    """Import image deps only when a verb needs them.
+
+    Registration must not fail because numpy or Pillow is missing. The tools that
+    touch pixels report the missing dep as data; probe/run/render never need it.
+    """
+    import numpy as np
+    from PIL import Image
+    return np, Image
+
+
 def _hex_rgb(h):
+    np, _ = _deps()
     h = h.lstrip("#")
     return np.array([int(h[i:i + 2], 16) / 255 for i in (0, 2, 4)], np.float32)
 
 
 def features(path: str, palette=DEFAULT_PALETTE) -> dict:
     """Everything here is a number computed from pixels, with no model in the loop."""
+    np, Image = _deps()
     im = Image.open(path)
     a = None
     if im.mode in ("RGBA", "LA"):
@@ -104,7 +114,8 @@ def features(path: str, palette=DEFAULT_PALETTE) -> dict:
     return out
 
 
-def _feature_vector(f: dict) -> np.ndarray:
+def _feature_vector(f: dict):
+    np, _ = _deps()
     return np.array([f[k] for k in sorted(f)], np.float64)
 
 
@@ -143,6 +154,7 @@ def load() -> list[dict]:
 
 # ------------------------------------------------------------------ model
 def train(epochs: int = 400, lr: float = 0.15) -> dict:
+    np, _ = _deps()
     rows = load()
     n = len(rows)
     if n < MIN_SAMPLES:
@@ -179,6 +191,7 @@ def train(epochs: int = 400, lr: float = 0.15) -> dict:
 
 
 def score(frame_path: str) -> dict:
+    np, _ = _deps()
     model_path = _store().replace(".jsonl", ".model.json")
     if not os.path.exists(model_path):
         t = train()
