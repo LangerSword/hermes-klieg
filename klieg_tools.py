@@ -364,8 +364,10 @@ def h_session(args: dict) -> str:
             return _j({"error": f"live bridge for {dcc} lands in a later adapter; Blender works today"})
         sid = os.urandom(4).hex()
         sock = os.path.join(core.data_dir(), f"live-{sid}.sock")
-        server = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                              "blender/klieg_headless_server.py")
+        server = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                              "blender", "klieg_headless_server.py")
+        if not os.path.isfile(server):
+            return _j({"error": f"bridge server script not found: {server}"})
         argv = [ad.find_binary(), "-b"]
         if args.get("blend"):
             argv.append(args["blend"])
@@ -411,7 +413,12 @@ def h_session(args: dict) -> str:
             return _j({"socket": sock, **r})
         return _j({"error": f"unknown action {action}"})
     except bridge_mod.BridgeUnavailable as e:
+        # The socket is gone. Refresh the job so a dead Blender cannot stay "running".
+        entry = sessions.get(sock) or {}
+        job_id = entry.get("job")
+        state = core.poll(job_id) if job_id else None
         return _j({"error": "host not reachable", "detail": str(e),
+                   "job": job_id, "job_state": (state or {}).get("state"),
                    "hint": "the live session is not running; start one or use batch"})
     except bridge_mod.BridgeTimeout as e:
         return _j({"error": "host busy", "detail": str(e),
