@@ -14,10 +14,9 @@ exit code. Klieg calls the job done only when the files on disk are newer than t
 
 *Whiteboard: agent, approval gate, adapter, job directory, verify. 1600x900.*
 
-![6 seconds of the demo](docs/media/demo_preview.gif)
-
-*Six seconds from [`docs/media/klieg_demo.mp4`](docs/media/klieg_demo.mp4), 83 s, recorded
-from the real CLI. The frames in it were written by the job in that recording.*
+**[50s explainer](docs/media/klieg_demo.mp4)** — motion UI, not a product capture.
+Rebuild: `node scripts/record_explainer.cjs` then mux (see `scripts/record_explainer.py`).
+Source: [`docs/explainer/index.html`](docs/explainer/index.html).
 
 ## Five decisions
 
