@@ -144,6 +144,21 @@ def child_environment(extra: dict | None = None) -> tuple[dict, list[str]]:
     return env, dropped
 
 
+def run_child(argv: list[str], **kw) -> subprocess.CompletedProcess:
+    """Run a short child with the allow-listed environment.
+
+    Every foreground tool goes through here. Building env from os.environ at a call
+    site leaks the agent's provider keys into Blender/ffmpeg logs.
+    """
+    extra = kw.pop("extra_env", None) or {}
+    env, dropped = child_environment(extra)
+    kw.setdefault("capture_output", True)
+    kw.setdefault("text", True)
+    result = subprocess.run(argv, env=env, **kw)
+    setattr(result, "dropped_env", dropped)
+    return result
+
+
 def _spawn(job: str, name: str, spec: dict, dcc: str, what: str) -> dict:
     """Start an already-created job directory."""
     jd = os.path.join(jobs_dir(), job)
