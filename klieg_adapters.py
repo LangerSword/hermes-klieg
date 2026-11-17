@@ -90,8 +90,6 @@ class Blender(Adapter):
         return super().find_binary()
 
     def version(self, path: str) -> str:
-        if os.environ.get("KLIEG_BLENDER") == path:
-            return "fixture (KLIEG_BLENDER)"
         return super().version(path)
 
     def run_argv(self, script, blend=None, args=None):

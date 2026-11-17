@@ -23,7 +23,9 @@ JOB_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
 
 def valid_job_id(job: str) -> bool:
-    return bool(JOB_ID_RE.fullmatch(job or ""))
+    if not isinstance(job, str):
+        return False
+    return bool(JOB_ID_RE.fullmatch(job))
 
 
 def data_dir() -> str:
@@ -183,7 +185,7 @@ def run_child(argv: list[str], **kw) -> subprocess.CompletedProcess:
 
 def _spawn(job: str, name: str, spec: dict, dcc: str, what: str) -> dict:
     """Start an already-created job directory."""
-    jd = os.path.join(jobs_dir(), job)
+    jd = _job_dir(job)   # validate + confine before any file or process is created
     log = os.path.join(jd, "log.txt")
     child_env, dropped = child_environment(spec.get("env") or {})
     argv = spec["argv"]
@@ -230,6 +232,8 @@ def launch(name: str, argv: list[str], cwd: str | None = None,
     list or dispatch call, so no daemon is required.
     """
     job = f"{name}-{uuid.uuid4().hex[:8]}"
+    if not valid_job_id(job):
+        raise ValueError(f"invalid generated job id: {job!r}")
     spec_env = env or {}
 
     if dcc and gpu_busy(dcc) and not queue:
@@ -237,7 +241,7 @@ def launch(name: str, argv: list[str], cwd: str | None = None,
                 "error": "one GPU, one render: queue it or wait for the holder",
                 "held_by": (gpu_busy(dcc) or {}).get("job")}
 
-    jd = os.path.join(jobs_dir(), job)
+    jd = _job_dir(job)
     os.makedirs(jd, exist_ok=True)
     spec = dict(argv=argv, cwd=cwd or os.getcwd(), env=spec_env,
                 guard=guard or [], expect=expect or {}, frames=frames)
@@ -258,6 +262,8 @@ def dispatch(dcc: str | None = None) -> list[dict]:
     started = []
     queued = []
     for n in os.listdir(jobs_dir()):
+        if not valid_job_id(n):
+            continue
         s = read_status(n)
         if s.get("state") == "queued" and (dcc is None or s.get("dcc") == dcc):
             queued.append((s.get("created") or 0, n, s))
@@ -435,6 +441,8 @@ def kill(job: str) -> dict:
 def list_jobs(limit: int = 20) -> list[dict]:
     found = []
     for name in os.listdir(jobs_dir()):
+        if not valid_job_id(name):
+            continue
         st = poll(name)
         if st.get("state") == "unknown":
             continue

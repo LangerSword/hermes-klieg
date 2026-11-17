@@ -23,11 +23,15 @@ class HomeIsolation(unittest.TestCase):
         try:
             os.environ["HERMES_HOME"] = a
             da = core.data_dir()
+            marker = os.path.join(da, "jobs", "marker-a")
+            os.makedirs(os.path.dirname(marker), exist_ok=True)
+            open(marker, "w").close()
             os.environ["HERMES_HOME"] = b
             db = core.data_dir()
             self.assertNotEqual(da, db)
             self.assertTrue(da.startswith(a))
             self.assertTrue(db.startswith(b))
+            self.assertTrue(os.path.isfile(marker))
             self.assertFalse(os.path.exists(os.path.join(db, "jobs", "marker-a")))
         finally:
             if old_data is not None:

@@ -26,6 +26,22 @@ class JobIdValidation(unittest.TestCase):
         for j in ("../../etc", "../x", "/etc", "a/b", "", "x" * 65, "a b"):
             self.assertFalse(core.valid_job_id(j), j)
 
+    def test_non_string_job_ids_rejected(self):
+        for j in (123, None, ["x"], {"a": 1}):
+            self.assertFalse(core.valid_job_id(j), repr(j))
+        out = json.loads(tools.h_jobs({"action": "status", "job": 123}))
+        self.assertFalse(out.get("ok", True))
+        self.assertIn("invalid job id", out["error"])
+
+    def test_legacy_job_dirs_do_not_break_listing(self):
+        junk = os.path.join(core.jobs_dir(), "legacy id with spaces")
+        os.makedirs(junk, exist_ok=True)
+        with open(os.path.join(junk, "status.json"), "w") as f:
+            f.write('{"state":"done"}')
+        rows = core.list_jobs(50)
+        self.assertIsInstance(rows, list)
+        self.assertFalse(any(r.get("job") == "legacy id with spaces" for r in rows))
+
     def test_core_raises_on_traversal(self):
         with self.assertRaises(ValueError):
             core.read_status("../../etc")

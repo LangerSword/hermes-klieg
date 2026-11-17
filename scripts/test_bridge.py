@@ -41,7 +41,8 @@ def main() -> int:
     if not blender:
         print("SKIP: blender not installed (set KLIEG_BLENDER to a real Blender binary)")
         return 0
-    if os.environ.get("KLIEG_BLENDER") and "fixture" in os.path.basename(blender).lower():
+    if (os.environ.get("KLIEG_BLENDER")
+            and os.path.join("tests", "fixtures") in os.path.normpath(blender)):
         print("SKIP: KLIEG_BLENDER points at a fixture, not a real Blender")
         return 0
     sock = os.path.join(tempfile.mkdtemp(prefix="klieg-bridge-"), "b.sock")

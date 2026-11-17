@@ -7,6 +7,7 @@ import os
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
@@ -22,7 +23,10 @@ class BlenderDiscovery(unittest.TestCase):
         try:
             os.environ["KLIEG_BLENDER"] = fixture
             self.assertEqual(A.Blender().find_binary(), fixture)
-            self.assertIn("fixture", A.Blender().detect()["version"])
+            # A real override still gets a real version probe, never a fake label.
+            with mock.patch.object(A.core, "run_child") as run:
+                run.return_value = mock.Mock(stdout="Blender 4.2.0\n", stderr="")
+                self.assertIn("4.2", A.Blender().detect()["version"])
         finally:
             if old is None:
                 os.environ.pop("KLIEG_BLENDER", None)
