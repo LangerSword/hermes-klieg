@@ -8,16 +8,12 @@ code that told you whether the frames were written is gone. Klieg exists because
 not a Blender problem, it is a *bridge* problem — and it is the same problem in Houdini,
 Nuke, C4D, After Effects and Resolve.
 
-One adapter interface, eight verbs, and a job engine that assumes the shell will die.
+One adapter interface, twelve verbs, and a job engine that assumes the shell will die.
 
-**[50-second demo](docs/media/klieg_demo.mp4)** · **[how it works](docs/media/whiteboard.png)**
-
-The demo is not a mock-up: `scripts/capture_session.py` records a real pseudo-terminal
-running the real CLI into `docs/media/cast.json`, and the video replays those bytes at their
-recorded times. The frames it shows were written by the job in that session. `scripts/qa_demo.py`
-then measures the finished file — duration, resolution, first-frame luma, beat coverage,
-caption dwell, banned glyphs, path leaks, integrated loudness and true peak — and prints
-PASS/FAIL per check.
+**[how it works](docs/media/whiteboard.png)** · the recorded session is committed as
+[`docs/media/cast.json`](docs/media/cast.json) (real PTY bytes, timestamped), and
+`scripts/make_demo_v2.py` cuts it into a video from that recording, the frames the job wrote,
+and the diagram. `scripts/qa_demo.py` measures the finished file and prints PASS/FAIL.
 
 [![How Klieg works](docs/media/whiteboard.png)](docs/media/whiteboard.png)
 

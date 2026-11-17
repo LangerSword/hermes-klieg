@@ -283,9 +283,9 @@ def main() -> int:
     silent = "/tmp/klieg-demo2/silent.mp4"
     subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-framerate", str(FPS),
                     "-i", os.path.join(FRAMES, "%04d.png"),
-                    "-vf", "scale=in_color_matrix=bt709:out_color_matrix=bt709:out_range=tv,"
-                           "scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p",
-                    "-c:v", "libx264", "-preset", "slow", "-crf", "18", silent], check=True)
+                    "-vf", "scale=1280:-2,scale=in_color_matrix=bt709:out_color_matrix=bt709:"
+                           "out_range=tv,scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p",
+                    "-c:v", "libx264", "-preset", "slow", "-crf", "24", silent], check=True)
     if os.path.exists(audio):
         subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", silent, "-i", audio,
                         "-filter_complex",
