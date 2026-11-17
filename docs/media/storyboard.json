@@ -1,0 +1,45 @@
+{
+ "fps": 30,
+ "duration": 51.93,
+ "beats": [
+  {
+   "name": "title",
+   "start": 0.0,
+   "end": 2.0,
+   "caption": "",
+   "claim": null
+  },
+  {
+   "name": "session",
+   "start": 2.0,
+   "end": 21.93,
+   "caption": "a real recorded session: probe, a stale artefact refused, plan, render, verify",
+   "claim": null
+  },
+  {
+   "name": "frames",
+   "start": 21.93,
+   "end": 31.93,
+   "caption": "the frames that job wrote, read off disk",
+   "claim": "frames written"
+  },
+  {
+   "name": "board",
+   "start": 31.93,
+   "end": 46.93,
+   "caption": "whiteboard: agent \u2192 gate \u2192 adapter \u2192 job dir \u2192 verify by mtime",
+   "claim": null
+  },
+  {
+   "name": "end",
+   "start": 46.93,
+   "end": 51.93,
+   "caption": "",
+   "claim": "12 tools, 38 tests"
+  }
+ ],
+ "numbers": {
+  "tools": 12,
+  "tests": 38
+ }
+}

@@ -10,13 +10,19 @@ Nuke, C4D, After Effects and Resolve.
 
 One adapter interface, eight verbs, and a job engine that assumes the shell will die.
 
-**[49-second demo](docs/media/klieg_demo.mp4)** · **[how it works](docs/media/whiteboard.png)**
+**[50-second demo](docs/media/klieg_demo.mp4)** · **[how it works](docs/media/whiteboard.png)**
+
+The demo is not a mock-up: `scripts/capture_session.py` records a real pseudo-terminal
+running the real CLI into `docs/media/cast.json`, and the video replays those bytes at their
+recorded times. The frames it shows were written by the job in that session. `scripts/qa_demo.py`
+then measures the finished file — duration, resolution, first-frame luma, beat coverage,
+caption dwell, banned glyphs, path leaks, integrated loudness and true peak — and prints
+PASS/FAIL per check.
 
 [![How Klieg works](docs/media/whiteboard.png)](docs/media/whiteboard.png)
 
-*Agent calls Klieg → the approval gate lets a verb through → an adapter builds argv → a
-detached job writes frames, a log, and its own exit code → `verify()` refuses to call it done
-unless the artefact is newer than the job started.*
+*Hand-drawn wall notes: agent → approval gate → adapter → host → job dir → **verify by mtime**.*
+*A frame count is not evidence. mtime(newest artefact) > started_at(job) is.*
 
 ## The eight verbs
 
@@ -31,6 +37,9 @@ unless the artefact is newer than the job started.*
 | `klieg_gate` | run a measurement script that must print `KLIIEG_GATE {json}` |
 | `klieg_jobs` | list / queue / status / log / **verify** / kill |
 | `klieg_publish` | encode with explicit BT.709 and the colour tags in the bitstream |
+| `klieg_session` | **live bridge** into a running Blender: start, eval, read colour state, stop |
+| `klieg_colour` | colour management beyond tags: probe, manifest with the OCIO hash, diff, verify tags |
+| `klieg_taste` | learn what you accept: record verdicts, train, score a frame and show what moved it |
 
 ## Four design decisions that matter more than the code
 
@@ -113,6 +122,37 @@ hermes plugins enable klieg
 klieg_probe
 ```
 
+## Live bridge, colour, and taste
+
+**The bridge is a real socket, not a poll.** `klieg_session action=start` launches Blender with
+`blender/klieg_headless_server.py` on a unix socket in your runtime directory (mode 0600);
+`blender/klieg_addon.py` does the same for a GUI session you already have open. The wire is one
+JSON object per line. Three behaviours make it survivable: a per-call timeout, a distinct
+`BridgeTimeout` for *connected but silent* (Blender is modal, retry) versus `BridgeUnavailable`
+(nothing listening, use batch), and execution on the host's main thread through a queue plus
+`bpy.app.timers`, because `bpy` is not thread-safe and a socket thread that touches it
+segfaults the UI.
+
+```bash
+python3 scripts/test_bridge.py     # launches real Blender, drives it, shuts it down
+# 10/10: ping, info, eval mutates the scene, reads colour, error-as-data, survives, clean exit
+```
+
+**Colour is recorded, not just tagged.** `klieg_colour action=write` stores
+`colour_manifest.json` beside the frames: display device, view transform, look, exposure, gamma,
+film-transparent, bit depth, and the **sha256 of the OCIO config**. `action=compare` diffs it
+against the current scene, and one field difference — `AgX` where the film was graded under
+Khronos PBR Neutral — reports `same_film: false`. That is the silent failure this exists for:
+every frame subtly wrong while every existing gate still passes.
+
+**Taste is learned from you, and says so.** `klieg_taste action=record` takes a frame and your
+accept/reject plus a reason. `action=train` fits a standardised logistic regression over 23
+measurable features (exposure percentiles, clipping, contrast, saturation, 12 hue buckets,
+edge density, where the detail sits, vignette, green fraction, palette adherence). `action=score`
+returns `p_accept` **and the features that moved it**, with the caveat and the verdict count
+attached. Below **12 verdicts it refuses to score** rather than inventing a preference, and it
+reports its own training accuracy so a confident number can never come from three examples.
+
 ## Security
 
 Read [SECURITY.md](SECURITY.md) before installing. The short version:
@@ -135,3 +175,19 @@ Read [SECURITY.md](SECURITY.md) before installing. The short version:
   run an OCIO config of its own.
 - **Gates do not know taste.** They return numbers. Whether the frame is good is the human's
   call, and `klieg_gate` says so by returning measurements rather than a pass.
+
+## Layout
+
+```
+plugin.yaml        manifest (9 tools)
+__init__.py        register(ctx): tools + hook
+klieg_core.py      jobs, queue, history, locks, artefact verification
+klieg_adapters.py  six hosts, one interface
+klieg_tools.py     the 9 verbs: schema + handler
+klieg_hooks.py     per-verb approval policy
+scripts/           klieg_cli · capture_session · make_demo_v2 · qa_demo · e2e · make_whiteboard
+tests/             27 stdlib unittest cases, hermetic
+docs/media/        klieg_demo.mp4 · whiteboard.png · cast.json · storyboard.json · e2e_ig.mp4
+SECURITY.md        threat model: what is and is not protected
+VERIFICATION.md    what was measured, and what was not
+```

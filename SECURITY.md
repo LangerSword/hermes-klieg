@@ -64,6 +64,24 @@ Each job's stdout/stderr goes to `plugin-data/klieg/jobs/<job>/log.txt`, capped 
 DCC prints — typically scene paths, frame numbers, and render times. They do **not** contain
 the environment, because the environment is allow-listed.
 
+## The live bridge
+
+A bridge is a privileged surface, so its shape matters more than its features.
+
+- **Unix socket, mode 0600, in the user's runtime directory.** Never TCP, never a fixed port,
+  never world-readable. Another local user cannot connect.
+- **No privilege gain.** The server runs inside a Blender the user started; executing code
+  there is what opening any `.blend` and pressing Run Script already does.
+- **`eval` is the only dangerous verb**, it is approval-gated at the tool layer like every other
+  executing verb, and the namespace it receives starts as `{"bpy": bpy}` so nothing is imported
+  implicitly.
+- **A busy host is not a dead host.** The client distinguishes `BridgeTimeout` (connected,
+  silent — Blender is modal) from `BridgeUnavailable` (nothing listening). Neither hangs the
+  agent.
+- **The GUI add-on parks requests in a queue** and executes them on Blender's main thread from
+  a `bpy.app.timers` callback. A socket thread calling `bpy` directly is how you get random UI
+  segfaults, which look like the plugin's fault.
+
 ## What is NOT protected
 
 - **A script you approve is arbitrary code.** `klieg_run` executes Python inside a host that

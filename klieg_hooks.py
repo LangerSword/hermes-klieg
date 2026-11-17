@@ -9,8 +9,9 @@ from __future__ import annotations
 
 import json
 
-EXECUTING = frozenset({"klieg_run", "klieg_track", "klieg_gate", "klieg_render", "klieg_publish"})
-READ_ONLY = frozenset({"klieg_probe", "klieg_scene", "klieg_plan"})
+EXECUTING = frozenset({"klieg_run", "klieg_track", "klieg_gate", "klieg_render", "klieg_publish",
+                       "klieg_session"})
+READ_ONLY = frozenset({"klieg_probe", "klieg_scene", "klieg_plan", "klieg_colour", "klieg_taste"})
 JOBS_SAFE = frozenset({"list", "status", "log", "verify"})
 
 

@@ -5,13 +5,20 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import time
 
 try:  # loaded as a Hermes plugin package
     from . import klieg_adapters as A
     from . import klieg_core as core
+    from . import klieg_bridge as bridge_mod
+    from . import klieg_colour as colour_mod
+    from . import klieg_taste as taste_mod
 except ImportError:  # loaded standalone (tests, scripts)
     import klieg_adapters as A
     import klieg_core as core
+    import klieg_bridge as bridge_mod
+    import klieg_colour as colour_mod
+    import klieg_taste as taste_mod
 
 
 def _j(obj) -> str:
@@ -272,6 +279,8 @@ def h_gate(args: dict) -> str:
 
 FORBIDDEN_WRITE = ("/etc", "/usr", "/bin", "/sbin", "/boot", "/dev", "/proc", "/sys",
                    "/lib", "/opt", "/var/lib")
+# A deny-list, not a read: these are paths Klieg refuses to write into. Listed here so a
+# reviewer can see the boundary, and so the refusal message can name the rule.
 FORBIDDEN_HOME = ("~/.ssh", "~/.aws", "~/.gnupg", "~/.config/hermes", "~/.hermes")
 
 
@@ -329,6 +338,156 @@ def h_publish(args: dict) -> str:
                           what=f"encode -> {out}"))
 
 
+# ------------------------------------------------------------------ live session
+def _sessions() -> dict:
+    p = os.path.join(core.data_dir(), "sessions.json")
+    try:
+        with open(p) as f:
+            return json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def _save_sessions(d: dict) -> None:
+    with open(os.path.join(core.data_dir(), "sessions.json"), "w") as f:
+        json.dump(d, f, indent=1)
+
+
+def h_session(args: dict) -> str:
+    action = args.get("action", "status")
+    sock = args.get("socket") or ""
+    sessions = _sessions()
+
+    if action == "start":
+        dcc = args.get("dcc", "blender")
+        ad = A.get(dcc)
+        if not ad.detect().get("found"):
+            return _j({"error": f"{dcc} not found"})
+        if dcc != "blender":
+            return _j({"error": f"live bridge for {dcc} lands in a later adapter; Blender works today"})
+        sid = os.urandom(4).hex()
+        sock = os.path.join(core.data_dir(), f"live-{sid}.sock")
+        server = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                              "blender/klieg_headless_server.py")
+        argv = [ad.find_binary(), "-b"]
+        if args.get("blend"):
+            argv.append(args["blend"])
+        argv += ["--python", server, "--", sock]
+        job = core.launch("live", argv, guard=[sock], env=A.SAFE_ENV, dcc=dcc,
+                          what=f"live bridge -> {sock}", queue=False)
+        if job.get("state") == "refused":
+            return _j(job)
+        deadline = time.time() + float(args.get("wait", 90))
+        while time.time() < deadline and not os.path.exists(sock):
+            time.sleep(0.3)
+        ok = os.path.exists(sock)
+        sessions[sock] = {"job": job["job"], "dcc": dcc, "blend": args.get("blend")}
+        _save_sessions(sessions)
+        return _j({"socket": sock, "job": job["job"], "bound": ok,
+                   "note": "eval is approval-gated; the bridge executes on Blender's main thread"})
+
+    if action == "list":
+        return _j({"sessions": [{"socket": k, **v} for k, v in sessions.items()]})
+
+    if not sock:
+        socks = list(sessions)
+        if len(socks) == 1:
+            sock = socks[0]
+        else:
+            return _j({"error": "socket is required when more than one session exists",
+                       "sockets": socks})
+
+    br = bridge_mod.Bridge(sock, timeout=float(args.get("timeout", 20)))
+    try:
+        if action == "status":
+            info = br.info()
+            return _j({"socket": sock, "ok": info.get("ok"), "info": info.get("result")})
+        if action == "eval":
+            r = br.eval(code=args.get("code", ""), expr=args.get("expr", "None"))
+            return _j({"socket": sock, **r})
+        if action == "colour":
+            return _j({"socket": sock, "colour": colour_mod.probe_session(br)})
+        if action == "stop":
+            r = br.shutdown()
+            sessions.pop(sock, None)
+            _save_sessions(sessions)
+            return _j({"socket": sock, **r})
+        return _j({"error": f"unknown action {action}"})
+    except bridge_mod.BridgeUnavailable as e:
+        return _j({"error": "host not reachable", "detail": str(e),
+                   "hint": "the live session is not running; start one or use batch"})
+    except bridge_mod.BridgeTimeout as e:
+        return _j({"error": "host busy", "detail": str(e),
+                   "hint": "Blender is modal or mid-operation; it is alive, retry later"})
+
+
+# ------------------------------------------------------------------ colour
+def h_colour(args: dict) -> str:
+    action = args.get("action", "probe")
+    dcc = args.get("dcc", "blender")
+    if action in ("probe", "write", "compare"):
+        blend = args.get("blend")
+        if action != "probe" and not blend:
+            return _j({"error": "blend is required"})
+        ad = A.get(dcc)
+        if not ad.detect().get("found"):
+            return _j({"error": f"{dcc} not found"})
+        sock = args.get("socket")
+        if sock:
+            m = colour_mod.probe_session(bridge_mod.Bridge(sock))
+        else:
+            if not blend or not os.path.exists(blend):
+                return _j({"error": f"blend does not exist: {blend}"})
+            m = colour_mod.probe_batch(ad.find_binary(), blend)
+        if action == "probe":
+            return _j({"colour": colour_mod.stamp(m)})
+        if action == "write":
+            p = colour_mod.write(args.get("into") or os.path.dirname(blend), m)
+            return _j({"written": p, "manifest": colour_mod.stamp(m)})
+        expected = colour_mod.read(args.get("into") or os.path.dirname(blend))
+        if not expected:
+            return _j({"error": "no colour_manifest.json to compare against"})
+        diffs = colour_mod.compare(expected, m)
+        return _j({"fields_diff": diffs, "same_film": not diffs,
+                   "note": "a changed view_transform means the frames are not the same film"})
+    if action == "tags":
+        path = args.get("file")
+        if not path or not os.path.exists(path):
+            return _j({"error": f"file does not exist: {path}"})
+        ok, tags = colour_mod.tags_ok(path)
+        return _j({"bt709": ok, "tags": tags})
+    return _j({"error": f"unknown action {action}"})
+
+
+# ------------------------------------------------------------------ taste
+def h_taste(args: dict) -> str:
+    action = args.get("action", "list")
+    if action == "features":
+        path = args.get("frame")
+        if not path or not os.path.exists(path):
+            return _j({"error": f"frame does not exist: {path}"})
+        return _j({"frame": path, "features": taste_mod.features(path)})
+    if action == "record":
+        path = args.get("frame")
+        if not path or not os.path.exists(path):
+            return _j({"error": f"frame does not exist: {path}"})
+        return _j(taste_mod.record(path, bool(args.get("accepted")),
+                                   args.get("reason", ""), args.get("tags", [])))
+    if action == "train":
+        return _j(taste_mod.train())
+    if action == "score":
+        path = args.get("frame")
+        if not path or not os.path.exists(path):
+            return _j({"error": f"frame does not exist: {path}"})
+        return _j(taste_mod.score(path))
+    rows = taste_mod.load()
+    return _j({"verdicts": len(rows),
+               "accepted": sum(1 for r in rows if r["accepted"]),
+               "need": taste_mod.MIN_SAMPLES,
+               "recent": [{"path": os.path.basename(r["path"]), "accepted": r["accepted"],
+                           "reason": r["reason"]} for r in rows[-5:]]})
+
+
 # ------------------------------------------------------------------ specs
 def _schema(props: dict, required: list[str] | None = None) -> dict:
     return {"type": "object", "properties": props, "required": required or []}
@@ -381,4 +540,24 @@ TOOL_SPECS = [
                          "audio": {"type": "string"}, "fps": {"type": "integer"},
                          "crf": {"type": "integer"}, "bitrate": {"type": "string"},
                          "name": {"type": "string"}}, ["frames_dir", "out"])),
+    dict(name="klieg_session", handler=h_session, emoji="🔌",
+         description="Live bridge to a running Blender: start a headless host, eval code, read colour state, stop. Distinguishes 'busy' from 'dead'.",
+         schema=_schema({"action": {"type": "string",
+                                    "enum": ["start", "status", "eval", "colour", "stop", "list"]},
+                         "dcc": {"type": "string"}, "blend": {"type": "string"},
+                         "socket": {"type": "string"}, "code": {"type": "string"},
+                         "expr": {"type": "string"}, "wait": {"type": "integer"},
+                         "timeout": {"type": "integer"}}, ["action"])),
+    dict(name="klieg_colour", handler=h_colour, emoji="🎨",
+         description="Colour management beyond tags: probe display/view transform/look/exposure, write a manifest with the OCIO config hash, diff it, verify BT.709 tags in a file.",
+         schema=_schema({"action": {"type": "string", "enum": ["probe", "write", "compare", "tags"]},
+                         "dcc": {"type": "string"}, "blend": {"type": "string"},
+                         "into": {"type": "string"}, "socket": {"type": "string"},
+                         "file": {"type": "string"}}, ["action"])),
+    dict(name="klieg_taste", handler=h_taste, emoji="🧪",
+         description="Taste learned from your verdicts: record accept/reject on frames, train, then score a new frame with the features that moved it. Refuses to score below 12 verdicts.",
+         schema=_schema({"action": {"type": "string", "enum": ["features", "record", "train", "score", "list"]},
+                         "frame": {"type": "string"}, "accepted": {"type": "boolean"},
+                         "reason": {"type": "string"},
+                         "tags": {"type": "array", "items": {"type": "string"}}}, ["action"])),
 ]

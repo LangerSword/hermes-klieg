@@ -24,3 +24,6 @@ provides_tools:
   - klieg_gate
   - klieg_publish
   - klieg_scene
+  - klieg_session
+  - klieg_colour
+  - klieg_taste
