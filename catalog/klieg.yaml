@@ -1,9 +1,9 @@
 # Catalog entry draft for github.com/NousResearch/hermes-agent -> plugin-catalog/klieg.yaml
-# `sha` must be the plugin commit being reviewed. Replace SHA_AFTER_PUSH before opening the PR.
+# `sha` must be the plugin commit being reviewed. Replace 5993512358cc0ca66fc7eb1c020cb835e7f7072f before opening the PR.
 
 name: klieg
 repo: https://github.com/LangerSword/hermes-klieg
-sha: SHA_AFTER_PUSH
+sha: 5993512358cc0ca66fc7eb1c020cb835e7f7072f
 version: "0.1.0"
 title: Klieg
 description: >-
