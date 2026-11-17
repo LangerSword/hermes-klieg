@@ -18,14 +18,15 @@ verified — including the parts that sound impressive.
 
 ```
 $ python3 -W error::ResourceWarning -m unittest discover -s tests
-........................
-Ran 24 tests in 10.053s
+...........................
+Ran 27 tests in 10.056s
 
 OK
 ```
 
-24 tests, no skips, no warnings (ResourceWarning is promoted to an error in this run, so a
-leaked child would fail the suite). Coverage by guarantee:
+27 tests, no skips, no warnings (ResourceWarning is promoted to an error in this run, so a
+leaked child would fail the suite). The suite is hermetic: it sets `HERMES_PLUGIN_DATA` to a
+fresh temp dir, so a previous run's history cannot change an assertion. Coverage by guarantee:
 
 | guarantee | test |
 |---|---|
@@ -51,6 +52,9 @@ leaked child would fail the suite). Coverage by guarantee:
 | plan rejects an unknown host | `test_plan_rejects_unknown_dcc` |
 | **a second render queues, then starts when the lock frees** | `test_render_queues_behind_holder_then_runs` |
 | `queue=false` refuses rather than stacking two renders | `test_queue_false_refuses_instead_of_stacking` |
+| **agent secrets never reach a child process** | `test_agent_secrets_do_not_reach_children` |
+| the allow-list keeps what a DCC needs | `test_allowlist_keeps_what_a_dcc_needs` |
+| publish refuses system and credential paths | `test_publish_refuses_system_and_credential_paths` |
 
 ## Plugin admission
 

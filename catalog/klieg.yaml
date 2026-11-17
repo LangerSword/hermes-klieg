@@ -1,0 +1,32 @@
+# Catalog entry draft for github.com/NousResearch/hermes-agent -> plugin-catalog/klieg.yaml
+# `sha` must be the plugin commit being reviewed. Replace SHA_AFTER_PUSH before opening the PR.
+
+name: klieg
+repo: https://github.com/LangerSword/hermes-klieg
+sha: SHA_AFTER_PUSH
+version: "0.1.0"
+title: Klieg
+description: >-
+  A DCC bridge for motion and design work: Blender, Houdini, Nuke, Cinema 4D, After Effects
+  and Resolve behind one adapter interface, driven as detached, resumable jobs. A job is only
+  "done" when its artefact is newer than the job started - klieg_jobs verify compares mtime
+  and the promised frame count, so a render that dies at frame 3 of 288, or emits frames from
+  a blend that failed to rebuild, cannot report success. klieg_plan resolves a pass (argv,
+  expected files, a duration predicted from this machine's own history, every blocker) without
+  running it. One GPU, one render: a second request queues behind the holder instead of
+  starting a second Cycles process, and queue=false refuses. Children get a 13-variable
+  environment allow-list, never os.environ, and key/token/secret names are dropped and
+  recorded. klieg_publish encodes with explicit BT.709 conversion and colour tags in the
+  bitstream.
+
+  Disclosure - klieg_run, klieg_track and klieg_gate execute model-authored Python inside the
+  host application with the user's privileges, and are approval-gated per call; unattended runs
+  fail closed. Klieg is not a sandbox: an approved script is arbitrary code, and a malicious
+  scene file executes when the host opens it. Batch only in 0.1 - there is no live UI bridge.
+  After Effects and Resolve are reported present-but-unsupported rather than faked.
+maintainer: LangerSword
+tier: community
+category: tools
+docs_url: https://github.com/LangerSword/hermes-klieg
+requires_hermes: ">=0.22.0"
+image:

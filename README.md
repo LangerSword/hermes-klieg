@@ -10,6 +10,14 @@ Nuke, C4D, After Effects and Resolve.
 
 One adapter interface, eight verbs, and a job engine that assumes the shell will die.
 
+**[49-second demo](docs/media/klieg_demo.mp4)** · **[how it works](docs/media/whiteboard.png)**
+
+[![How Klieg works](docs/media/whiteboard.png)](docs/media/whiteboard.png)
+
+*Agent calls Klieg → the approval gate lets a verb through → an adapter builds argv → a
+detached job writes frames, a log, and its own exit code → `verify()` refuses to call it done
+unless the artefact is newer than the job started.*
+
 ## The eight verbs
 
 | tool | what it actually settles |
@@ -104,6 +112,19 @@ hermes plugins enable klieg
 # next session:
 klieg_probe
 ```
+
+## Security
+
+Read [SECURITY.md](SECURITY.md) before installing. The short version:
+
+- five verbs execute model-authored code or spend GPU time and are approval-gated per call;
+  unattended runs fail closed
+- child processes get a 13-variable environment allow-list — never `os.environ` — and any name
+  matching `KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|SESSION` is dropped and recorded in the job
+  status
+- `klieg_publish` refuses to write under system and credential paths
+- Klieg is **not** a sandbox: an approved script is arbitrary code, and a scene file executes
+  when the host opens it
 
 ## Limits, stated plainly
 
