@@ -1,0 +1,26 @@
+name: klieg
+label: Klieg
+kind: standalone
+version: 0.1.0
+author: Lakshaya Sharma (LangerSword)
+homepage: https://github.com/LangerSword/hermes-klieg
+description: >
+  A DCC bridge for Hermes. Klieg gives the agent hands on the tools that make
+  pictures - Blender, Houdini, Nuke, Cinema 4D, After Effects, Resolve - through
+  one adapter interface: probe what is installed, run a script inside the host,
+  render frames as detached resumable jobs that survive the agent's shell, and
+  measure the result instead of trusting it. Long GPU work never holds the
+  interactive terminal, because that is what kills it.
+requires_hermes: ">=0.22.0"
+provides_hooks:
+  - pre_tool_call
+provides_tools:
+  - klieg_probe
+  - klieg_plan
+  - klieg_run
+  - klieg_render
+  - klieg_jobs
+  - klieg_track
+  - klieg_gate
+  - klieg_publish
+  - klieg_scene

@@ -1,0 +1,34 @@
+# No untrusted input reaches a `run:` block here: the only interpolations are the
+# matrix's OS and Python version, which this repository controls. No event payload
+# (issue/PR titles, commit messages, refs) is used anywhere in this workflow.
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  unit:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python: ["3.10", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: unit tests (no Blender, no GPU)
+        run: python -W error::ResourceWarning -m unittest discover -s tests -v
+      - name: import the plugin surface
+        run: |
+          python - <<'PY'
+          import importlib, sys
+          sys.path.insert(0, ".")
+          for m in ("klieg_core", "klieg_adapters", "klieg_tools", "klieg_hooks"):
+              importlib.import_module(m)
+          import klieg_tools as t
+          print("tools:", [s["name"] for s in t.TOOL_SPECS])
+          PY

@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hermes-klieg"
+version = "0.1.0"
+description = "A DCC bridge for Hermes: detached, artefact-verified render jobs across Blender, Houdini, Nuke, C4D, After Effects and Resolve."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Lakshaya Sharma", email = "lakshaya@langersword.in" }]
+keywords = ["hermes", "plugin", "blender", "render", "motion-design", "dcc"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: POSIX :: Linux",
+  "Operating System :: MacOS",
+]
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/LangerSword/hermes-klieg"
+Issues = "https://github.com/LangerSword/hermes-klieg/issues"
+
+[tool.setuptools]
+py-modules = ["klieg_core", "klieg_adapters", "klieg_tools", "klieg_hooks"]
