@@ -27,7 +27,7 @@ class StartMarker(unittest.TestCase):
         # Child writes immediately, no sleep.
         j = core.launch("fast", ["/bin/sh", "-c", f"echo x > {art}"],
                         guard=[art], expect={"dir": d, "min": 1, "ext": ".png"})
-        for _ in range(30):
+        for _ in range(60):
             if os.path.exists(art):
                 break
             time.sleep(0.05)
@@ -41,6 +41,10 @@ class StartMarker(unittest.TestCase):
 
     def test_marker_created_before_status(self):
         j = core.launch("mark", ["/bin/sh", "-c", "true"])
+        for _ in range(60):
+            if core.poll(j["job"])["state"] != "running":
+                break
+            time.sleep(0.05)
         st = core.read_status(j["job"])
         self.assertIn("marker", st)
         self.assertTrue(os.path.isfile(st["marker"]))

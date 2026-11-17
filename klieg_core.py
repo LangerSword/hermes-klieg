@@ -173,8 +173,10 @@ def _spawn(job: str, name: str, spec: dict, dcc: str, what: str) -> dict:
     marker = os.path.join(jd, "started.marker")
     with open(marker, "w"):
         pass
+    # Equal mtimes already count as fresh (verify uses `mtime < started` for stale),
+    # so the marker alone handles same-tick child writes. Subtracting a margin would
+    # let an artefact touched just before launch() masquerade as fresh.
     started = os.path.getmtime(marker)
-    started -= 0.01  # tolerate coarse filesystem timestamp resolution
     with open(log, "wb") as fh:
         proc = subprocess.Popen(
             ["/bin/sh", "-c", script],

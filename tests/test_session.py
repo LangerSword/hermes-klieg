@@ -46,11 +46,14 @@ class SessionLifecycle(unittest.TestCase):
             json.dump({sock: {"job": "gone-job", "dcc": "blender"}}, f)
 
         with mock.patch.object(tools.bridge_mod.Bridge, "info",
-                               side_effect=tools.bridge_mod.BridgeUnavailable("dead")):
+                               side_effect=tools.bridge_mod.BridgeUnavailable("dead")), \
+             mock.patch.object(core, "poll", return_value={"state": "failed",
+                                                           "note": "host exited"}) as polled:
             out = json.loads(tools.h_session({"action": "status", "socket": sock}))
         self.assertEqual(out["error"], "host not reachable")
         self.assertEqual(out["job"], "gone-job")
-        self.assertIn(out["job_state"], ("failed", "exited", "unknown", None))
+        polled.assert_called_once_with("gone-job")
+        self.assertEqual(out["job_state"], "failed")
 
 
 if __name__ == "__main__":
