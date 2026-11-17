@@ -50,7 +50,7 @@ def main() -> int:
     num, den = (int(x) for x in fps.split("/"))
     fps_val = num / den if den else 0
 
-    check("duration 30-70s", 30 <= dur <= 70, f"{dur:.2f}s")
+    check("duration 45-100s", 45 <= dur <= 100, f"{dur:.2f}s")
     check("size > 400 KB", size > 400_000, f"{size} bytes")
     check("video codec h264", v.get("codec_name") == "h264", str(v.get("codec_name")))
     check("resolution 1920x1080", (v.get("width"), v.get("height")) == (1920, 1080),
