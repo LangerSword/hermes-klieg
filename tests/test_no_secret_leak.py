@@ -46,11 +46,13 @@ class ChildEnvLeak(unittest.TestCase):
 
         def fake_run(argv, **kw):
             seen.append(kw.get("env"))
-            return mock.Mock(returncode=0,
-                             stdout='KLIIEG_COLOUR {"view_transform": "AgX"}\nKLIIEG_GATE {}\n',
+            return mock.Mock(returncode=0, stdout='KLIIEG_COLOUR {"view_transform": "AgX"}\nKLIIEG_GATE {}\n',
                              stderr="")
 
-        with mock.patch("subprocess.run", side_effect=fake_run):
+        fake_adapter = mock.Mock(detect=lambda: {"found": True},
+                                 find_binary=lambda: "/usr/bin/blender")
+        with mock.patch("subprocess.run", side_effect=fake_run), \
+             mock.patch.object(tools.A, "get", return_value=fake_adapter):
             fn()
         self.assertTrue(seen, "no subprocess was spawned")
         return seen

@@ -146,9 +146,8 @@ def compare(expected: dict, actual: dict) -> list[dict]:
 
 
 def ffprobe_tags(path: str) -> dict:
-    out = subprocess.run(["ffprobe", "-v", "error", "-print_format", "json",
-                          "-show_streams", "-show_format", path],
-                         capture_output=True, text=True)
+    out = core.run_child(["ffprobe", "-v", "error", "-print_format", "json",
+                          "-show_streams", "-show_format", path])
     try:
         data = json.loads(out.stdout)
     except json.JSONDecodeError:

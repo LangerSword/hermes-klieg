@@ -458,7 +458,15 @@ def h_colour(args: dict) -> str:
 
 # ------------------------------------------------------------------ taste
 def h_taste(args: dict) -> str:
+    """Taste verbs need numpy/Pillow; report a missing dep as data, never a trace."""
     action = args.get("action", "list")
+    pixel_actions = {"features", "record", "train", "score"}
+    if action in pixel_actions:
+        try:
+            taste_mod._deps()
+        except ImportError as e:
+            return _j({"error": f"optional dependency missing: {e}",
+                       "hint": "install numpy and Pillow to use klieg_taste pixel verbs"})
     if action == "features":
         path = args.get("frame")
         if not path or not os.path.exists(path):

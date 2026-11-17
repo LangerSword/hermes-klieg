@@ -14,6 +14,7 @@ import sys
 import time
 import tempfile
 import unittest
+from unittest import mock
 
 # Hermetic: every test run gets its own plugin data dir, so job history from a
 # previous run (or from the user's real ~/.hermes) cannot change an assertion.
@@ -210,8 +211,13 @@ class Plan(unittest.TestCase):
         d = tempfile.mkdtemp(prefix="klieg-plan-")
         blend = os.path.join(d, "a.blend")
         open(blend, "w").close()
-        out = json.loads(tools.h_plan({"blend": blend, "frames": "0-2,7",
-                                       "outdir": os.path.join(d, "f")}))
+        # CI has no Blender. Stub detection so the argv is resolved from the shape,
+        # not from whatever happens to be installed on the runner.
+        fake = mock.Mock(detect=lambda: {"found": True, "version": "fixture"})
+        fake.render_argv.return_value = ["blender", "-b", "--", "script.py"]
+        with mock.patch.object(A, "get", return_value=fake):
+            out = json.loads(tools.h_plan({"blend": blend, "frames": "0-2,7",
+                                           "outdir": os.path.join(d, "f")}))
         self.assertEqual(out["frame_count"], 4)
         self.assertTrue(out["expected_first"].endswith("0000.png"))
         self.assertTrue(out["expected_last"].endswith("0007.png"))
