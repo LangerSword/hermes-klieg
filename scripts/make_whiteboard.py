@@ -75,7 +75,7 @@ def main() -> int:
         "klieg_probe   what is installed",
         "klieg_plan    resolve, don't run",
         "klieg_render  start a pass",
-        "klieg_gate    numbers, not verdicts",
+        "klieg_gate    numbers, no verdict",
     ], accent=INK)
 
     # approval gate
