@@ -1,76 +1,67 @@
 {
  "fps": 30,
- "duration": 82.87,
+ "duration": 52.0,
  "beats": [
   {
-   "name": "open",
+   "name": "hook",
    "start": 0.0,
-   "end": 8.481,
-   "caption": "the problem: a finished render that lied",
-   "vo": "Agents can write a Blender render script. They cannot tell if the frames on disk are from this job, or the last one.",
+   "end": 6.0,
+   "caption": "A render finished. | Exit 0. Frames on disk. Wrong job.",
    "claim": null
   },
   {
    "name": "stale",
-   "start": 8.481,
-   "end": 19.169,
-   "caption": "klieg jobs verify - stale artefact refused",
-   "vo": "Klieg is a DCC bridge for Hermes. Watch verify catch a stale job: exit code zero, artefacts empty, stale count one.",
+   "start": 6.0,
+   "end": 14.0,
+   "caption": "klieg jobs verify | stale: 1   artefacts: []   refused",
    "claim": null
   },
   {
    "name": "probe",
-   "start": 19.169,
-   "end": 30.936,
-   "caption": "probe hosts | plan without running",
-   "vo": "Same session. Probe what is installed. Plan the pass without touching the GPU. Two hundred eighty eight frames, predicted duration from this machine's history.",
+   "start": 14.0,
+   "end": 22.0,
+   "caption": "probe  ->  plan | 288 frames. Predicted duration. No GPU yet.",
    "claim": null
   },
   {
    "name": "render",
-   "start": 30.936,
-   "end": 43.237,
-   "caption": "detached render | job dir survives the shell",
-   "vo": "Render detaches. The shell can die. The job keeps its own log, exit file, and status. When it finishes, verify does not trust the exit code alone.",
+   "start": 22.0,
+   "end": 30.0,
+   "caption": "render detaches | Shell can die. Job keeps log + exit + status.",
    "claim": null
   },
   {
-   "name": "verify_ok",
-   "start": 43.237,
-   "end": 53.784,
-   "caption": "verify: mtime and count, not hope",
-   "vo": "Verify asks three questions. Does the file exist. Is its mtime newer than the job start. Did we get every frame we promised.",
+   "name": "verify",
+   "start": 30.0,
+   "end": 36.0,
+   "caption": "verify does not trust exit codes | exists  AND  mtime >= start  AND  count",
    "claim": null
   },
   {
    "name": "result",
-   "start": 53.784,
-   "end": 61.569,
-   "caption": "result: frames on disk from this job",
-   "vo": "These are the frames that job wrote, read straight off disk. A count without a fresh mtime would still fail.",
+   "start": 36.0,
+   "end": 42.0,
+   "caption": "frames this job wrote | read off disk",
    "claim": null
   },
   {
    "name": "board",
-   "start": 61.569,
-   "end": 72.756,
-   "caption": "how it works",
-   "vo": "Agent calls a verb. Approval gate. Adapter builds argv. One GPU lock. Job directory. Verify is the only claim that matters.",
+   "start": 42.0,
+   "end": 48.0,
+   "caption": "how it works | agent -> gate -> adapter -> job -> verify",
    "claim": null
   },
   {
    "name": "end",
-   "start": 72.756,
-   "end": 82.874,
-   "caption": "",
-   "vo": "Klieg. A DCC bridge for Hermes. The render that cannot lie about finishing. github.com slash LangerSword slash hermes-klieg.",
+   "start": 48.0,
+   "end": 52.0,
+   "caption": "Klieg | github.com/LangerSword/hermes-klieg",
    "claim": null
   }
  ],
  "numbers": {
   "tools": 12,
-  "tests": 38,
-  "tests_ok": true
+  "tests": 38
  },
- "audio": "piper-tts original VO for this cut (no third-party project mix)"
+ "audio": "docs/media/music.wav synthesized in-repo (make_music.py); no VO"
 }
