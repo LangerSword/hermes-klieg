@@ -16,18 +16,26 @@ verified — including the parts that sound impressive.
 
 ## Test suite
 
+Command, from the repository root:
+
 ```
-$ python3 -W error::ResourceWarning -m unittest discover -s tests
-......................................
-Ran 38 tests in 12.979s
+python3 -W error::ResourceWarning -m unittest discover -s tests
+```
+
+The declared Python dependencies must be installed first (`numpy>=1.26,<3`,
+`Pillow>=10,<12`); CI installs them in `.github/workflows/tests.yml`.
+
+Last full run on this branch (Arch Linux, Python 3.11, Blender 5.3 available):
+
+```
+Ran 70 tests in 13.724s
 
 OK
 ```
 
-38 tests, no skips, no warnings (ResourceWarning is promoted to an error in this run, so a
-leaked child, socket or file handle fails the suite). The suite is hermetic: it sets
+70 tests, no skips, no warnings. The suite is hermetic: it sets
 `HERMES_PLUGIN_DATA` to a fresh temp dir, so a previous run's history cannot change an
-assertion. Coverage by guarantee:
+assertion. Blender is not required: tests that need a DCC stub its adapter. Coverage by guarantee:
 
 | guarantee | test |
 |---|---|

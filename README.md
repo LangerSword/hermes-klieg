@@ -84,7 +84,7 @@ breaks that lookup. Run Blender with `PATH=/usr/bin:/bin`.
 
 | check | command | result |
 |---|---|---|
-| tests | `python3 -W error::ResourceWarning -m unittest discover -s tests` | 38 tests, OK, no warnings |
+| tests | `python3 -m unittest discover -s tests` | 70 tests, OK |
 | live bridge | `python3 scripts/test_bridge.py` | 10 of 10 checks against Blender 5.3.0 |
 | end to end | `python3 scripts/e2e.py` | 2 frames rendered, verified, encoded, 20,844 bytes |
 | plugin admission | `hermes plugins validate .` | validation passed |
@@ -116,7 +116,7 @@ Read `SECURITY.md` before you install.
 |---|---|
 | Python 3.10+ standard library | the plugin, the job engine, the socket client |
 | numpy, Pillow | `klieg_taste` frame features and scoring; declared in `plugin.yaml`, imported on demand |
-| Blender 4.2 or later | the render host; 4.2 has the Khronos view transform |
+| Blender 4.2 or later | the render host; `klieg_colour` reads display_device from `display_settings` (4.2-compatible path, tested against a fake 4.2 bpy) |
 | ffmpeg | encode, colour tags, probe |
 | POSIX unix socket | the live bridge; no TCP port |
 
@@ -133,7 +133,7 @@ klieg_colour.py       manifest, diff, tag check
 klieg_taste.py        features, verdicts, model
 blender/              headless server and GUI add-on
 scripts/              cli, e2e, bridge test, whiteboard, demo cutter, qa
-tests/                38 cases, hermetic
+tests/                70 cases, hermetic
 ```
 
 MIT. The whiteboard, the demo, and the sample frames in this repository come from the
