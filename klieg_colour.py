@@ -38,7 +38,7 @@ try:
 except Exception:
     ocio = ''
 manifest = {
-  "display_device": vs.display_device,
+  "display_device": getattr(sc.display_settings, "display_device", ""),
   "view_transform": vs.view_transform,
   "look": vs.look,
   "exposure": round(float(vs.exposure), 4),

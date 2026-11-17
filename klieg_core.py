@@ -167,6 +167,14 @@ def _spawn(job: str, name: str, spec: dict, dcc: str, what: str) -> dict:
     argv = spec["argv"]
 
     script = f"{shlex.join(argv)}; echo $? > {shlex.quote(os.path.join(jd, 'exit'))}"
+    # The marker exists BEFORE the child starts. A fast child can write its artefact
+    # within the same clock tick; comparing against time.time() taken after Popen
+    # made fresh files look stale. The marker's mtime is the real start boundary.
+    marker = os.path.join(jd, "started.marker")
+    with open(marker, "w"):
+        pass
+    started = os.path.getmtime(marker)
+    started -= 0.01  # tolerate coarse filesystem timestamp resolution
     with open(log, "wb") as fh:
         proc = subprocess.Popen(
             ["/bin/sh", "-c", script],
@@ -176,7 +184,7 @@ def _spawn(job: str, name: str, spec: dict, dcc: str, what: str) -> dict:
         )
 
     _write_status(job, job=job, name=name, what=what, dcc=dcc, pid=proc.pid,
-                  state="running", started=time.time(), log=log,
+                  state="running", started=started, marker=marker, log=log,
                   cwd=spec.get("cwd") or os.getcwd(), argv=argv,
                   guard=spec.get("guard") or [], expect=spec.get("expect") or {},
                   frames=spec.get("frames"), env_dropped=dropped)
