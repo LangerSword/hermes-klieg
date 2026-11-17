@@ -281,20 +281,37 @@ def main() -> int:
     print("muxing audio + encode...")
     audio = os.path.expanduser("~/projects/omnitrix-strobe/deliver/audio/mix.wav")
     silent = "/tmp/klieg-demo2/silent.mp4"
-    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-framerate", str(FPS),
-                    "-i", os.path.join(FRAMES, "%04d.png"),
-                    "-vf", "scale=1280:-2,scale=in_color_matrix=bt709:out_color_matrix=bt709:"
-                           "out_range=tv,scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p",
-                    "-c:v", "libx264", "-preset", "slow", "-crf", "24", silent], check=True)
+    # full HD, constant fps, dense keyframes — no mid-file seek traps later
+    subprocess.run([
+        "ffmpeg", "-y", "-loglevel", "error",
+        "-framerate", str(FPS),
+        "-i", os.path.join(FRAMES, "%04d.png"),
+        "-vf", "scale=1920:1080:force_original_aspect_ratio=decrease,"
+               "pad=1920:1080:(ow-iw)/2:(oh-ih)/2:color=0x080a0d,"
+               "fps=30,format=yuv420p",
+        "-c:v", "libx264", "-preset", "medium", "-crf", "18",
+        "-pix_fmt", "yuv420p", "-r", str(FPS),
+        "-movflags", "+faststart",
+        silent,
+    ], check=True)
     if os.path.exists(audio):
-        subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", silent, "-i", audio,
-                        "-filter_complex",
-                        "[1:a]volume=0.55,afade=t=out:st=%.1f:d=2.0,apad[a]"
-                        % (total - 2.0),
-                        "-map", "0:v", "-map", "[a]", "-c:v", "copy",
-                        "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
-                        "-color_primaries", "bt709", "-color_trc", "bt709",
-                        "-colorspace", "bt709", "-color_range", "tv", OUT], check=True)
+        # -t locks duration: apad alone would run forever on a long mix.wav
+        subprocess.run([
+            "ffmpeg", "-y", "-loglevel", "error",
+            "-i", silent, "-i", audio,
+            "-filter_complex",
+            "[1:a]atrim=0:%.3f,volume=0.55,afade=t=in:st=0:d=0.6,"
+            "afade=t=out:st=%.3f:d=2.0,apad=whole_dur=%.3f[a]"
+            % (total, max(0.0, total - 2.0), total),
+            "-map", "0:v", "-map", "[a]",
+            "-c:v", "copy",
+            "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
+            "-t", "%.3f" % total,
+            "-color_primaries", "bt709", "-color_trc", "bt709",
+            "-colorspace", "bt709", "-color_range", "tv",
+            "-movflags", "+faststart",
+            OUT,
+        ], check=True)
     else:
         os.replace(silent, OUT)
 
