@@ -23,7 +23,7 @@ python3 -W error::ResourceWarning -m unittest discover -s tests
 ```
 
 The declared Python dependencies must be installed first (`numpy>=1.26,<3`,
-`Pillow>=10,<12`); CI installs them in `.github/workflows/tests.yml`.
+`Pillow>=10`); CI installs them in `.github/workflows/tests.yml`.
 
 Last full run on this branch (Arch Linux, Python 3.11, Blender 5.3 available):
 
@@ -89,7 +89,7 @@ Validation passed.
 $ hermes plugins doctor .
 manifest: klieg 0.1.0 (standalone)
 OK: runtime discovery, manifest parsing, import, and registration passed
-registrations: 9 tool(s), 1 hook(s)
+registrations: 12 tool(s), 1 hook(s)
 ```
 
 ## End-to-end, through the plugin
@@ -125,7 +125,7 @@ the same `Bridge` class the tool uses:
 ```
 PASS  blender started and bound the socket
 PASS  ping                               pong
-PASS  info reports a real Blender        5.3.0 objects=3 vt=AgX
+PASS  info reports Blender 4.2+          5.3.0 objects=3 vt=AgX
 PASS  eval mutates the scene             4 (was 3)
 PASS  reads colour management            'AgX'
 PASS  error comes back as data           ValueError surfaced

@@ -10,6 +10,7 @@ Prints PASS/FAIL per step.
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -73,8 +74,11 @@ def main() -> int:
         r = b.info()
         info = json.loads(r["result"])
         before = int(info.get("objects", 0))
-        check("info reports a real Blender", info.get("blender", "").startswith("5."),
-              f"{info.get('blender')} objects={before} vt={info.get('view_transform')}")
+        version = info.get("blender", "")
+        numbers = re.findall(r"\d+", version)[:2]
+        supported = len(numbers) == 2 and tuple(map(int, numbers)) >= (4, 2)
+        check("info reports Blender 4.2+", supported,
+              f"{version} objects={before} vt={info.get('view_transform')}")
 
         r = b.eval(code="bpy.ops.mesh.primitive_cube_add(size=2)",
                    expr="len(bpy.data.objects)")

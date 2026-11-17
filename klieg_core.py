@@ -15,6 +15,7 @@ import re
 import shlex
 import signal
 import subprocess
+import threading
 import time
 import uuid
 
@@ -183,6 +184,27 @@ def run_child(argv: list[str], **kw) -> subprocess.CompletedProcess:
     return result
 
 
+def _watch(job: str, proc: subprocess.Popen, dcc: str) -> None:
+    """Finalize a job when its process exits, so the GPU lock is not held hostage
+    to somebody calling status or list. poll() remains safe as a backstop."""
+    proc.wait()
+    st = read_status(job)
+    if st.get("state") != "running":
+        return
+    exit_file = os.path.join(jobs_dir(), job, "exit")
+    try:
+        with open(exit_file) as f:
+            code = int((f.read() or "1").strip() or 1)
+    except (OSError, ValueError):
+        code = proc.returncode if proc.returncode is not None else 1
+    state = "done" if code == 0 else "failed"
+    _write_status(job, state=state, exit=code, ended=time.time())
+    if state == "done":
+        _record_history(read_status(job))
+    if dcc:
+        release_lock(dcc, job)
+
+
 def _spawn(job: str, name: str, spec: dict, dcc: str, what: str) -> dict:
     """Start an already-created job directory."""
     jd = _job_dir(job)   # validate + confine before any file or process is created
@@ -217,6 +239,7 @@ def _spawn(job: str, name: str, spec: dict, dcc: str, what: str) -> dict:
     if dcc:
         _take_lock(dcc, job, proc.pid)
     _LIVE[job] = proc
+    threading.Thread(target=_watch, args=(job, proc, dcc), daemon=True).start()
     return {"job": job, "pid": proc.pid, "log": log, "state": "running"}
 
 
@@ -418,6 +441,9 @@ def verify(job: str) -> dict:
 def kill(job: str) -> dict:
     st = read_status(job)
     pid = int(st.get("pid") or 0)
+    # Mark killed BEFORE signalling: the watcher thread wakes on process exit and
+    # would otherwise finalize the job as failed while this call is still running.
+    _write_status(job, state="killed", ended=time.time())
     if pid:
         try:
             os.killpg(os.getpgid(pid), signal.SIGTERM)

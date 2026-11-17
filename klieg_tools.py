@@ -289,8 +289,12 @@ def h_gate(args: dict) -> str:
     A gate is a number, not a feeling: the script must print `KLIIEG_GATE {json}`.
     """
     dcc = args.get("dcc", "blender")
+    script = args.get("script") or ""
+    resolved = os.path.abspath(os.path.expanduser(script)) if script else ""
+    if not script or not os.path.isfile(resolved):
+        return _j({"ok": False, "error": f"script not found: {resolved or '<empty>'}"})
     ad = A.get(dcc)
-    argv = ad.run_argv(args["script"], blend=args.get("blend"),
+    argv = ad.run_argv(resolved, blend=args.get("blend"),
                        args=[json.dumps(args.get("params") or {})])
     if argv is None:
         return _j({"error": f"{dcc} cannot be driven headlessly in 0.1"})
@@ -424,6 +428,9 @@ def h_session(args: dict) -> str:
         socks = list(sessions)
         if len(socks) == 1:
             sock = socks[0]
+        elif not socks:
+            return _j({"error": "no live sessions; start one with action=start",
+                       "sessions": []})
         else:
             return _j({"error": "socket is required when more than one session exists",
                        "sockets": socks})

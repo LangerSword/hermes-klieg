@@ -22,7 +22,7 @@ description: >-
   Disclosure - klieg_run, klieg_track and klieg_gate execute model-authored Python inside the
   host application with the user's privileges, and are approval-gated per call; unattended runs
   fail closed. Klieg is not a sandbox: an approved script is arbitrary code, and a malicious
-  scene file executes when the host opens it. Batch only in 0.1 - there is no live UI bridge.
+  scene file executes when the host opens it. A live session bridge into a running Blender is available through klieg_session; other hosts remain batch-only.
   After Effects and Resolve are reported present-but-unsupported rather than faked.
 maintainer: LangerSword
 tier: community

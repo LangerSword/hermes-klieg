@@ -85,7 +85,7 @@ breaks that lookup. Run Blender with `PATH=/usr/bin:/bin`.
 | check | command | result |
 |---|---|---|
 | tests | `python3 -m unittest discover -s tests` | 70 tests, OK |
-| live bridge | `python3 scripts/test_bridge.py` | 10 of 10 checks against Blender 5.3.0 |
+| live bridge | `python3 scripts/test_bridge.py` | 10 of 10 checks on Blender 5.3.0; supports 4.2+ |
 | end to end | `python3 scripts/e2e.py` | 2 frames rendered, verified, encoded, 20,844 bytes |
 | plugin admission | `hermes plugins validate .` | validation passed |
 | registration | `hermes plugins doctor .` | 12 tools, 1 hook |

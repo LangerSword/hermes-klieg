@@ -14,7 +14,7 @@ description: >
 requires_hermes: ">=0.22.0"
 python_dependencies:
   - "numpy>=1.26,<3"
-  - "Pillow>=10,<12"
+  - "Pillow>=10"
 provides_hooks:
   - pre_tool_call
 provides_tools:

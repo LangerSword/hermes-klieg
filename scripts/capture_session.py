@@ -16,8 +16,10 @@ import sys
 import time
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from paths import resolve_input
 OUT = os.path.join(REPO, "docs/media/cast.json")
-BLEND = os.path.expanduser("~/projects/omnitrix-strobe/board/anim.blend")
+BLEND = resolve_input("blend")
 WORK = "/tmp/klieg-cast/px"
 
 SCRIPT = r"""
