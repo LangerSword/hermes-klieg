@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import time
 
@@ -25,20 +26,47 @@ def _j(obj) -> str:
     return json.dumps(obj, indent=1)
 
 
-def _frames(spec) -> list[int]:
+_FRAME_PART = re.compile(r"^\d+$")
+_FRAME_RANGE = re.compile(r"^(\d+)-(\d+)$")
+
+
+def parse_frames(spec) -> tuple[list[int], str | None]:
+    """Strictly parse N, A-B, or comma lists. Returns (frames, error)."""
     if isinstance(spec, list):
-        return [int(x) for x in spec]
+        out = []
+        for x in spec:
+            if not _FRAME_PART.fullmatch(str(x).strip()):
+                return [], f"invalid frame: {x!r}"
+            out.append(int(x))
+        return out, None
+    text = str(spec or "").strip()
+    if not text:
+        return [], None
     out: list[int] = []
-    for part in str(spec).split(","):
+    for part in text.split(","):
         part = part.strip()
         if not part:
+            return [], "empty frame in list"
+        m = _FRAME_RANGE.fullmatch(part)
+        if m:
+            a, b = int(m.group(1)), int(m.group(2))
+            if b < a:
+                return [], f"reversed frame range: {part}"
+            out += list(range(a, b + 1))
             continue
-        if "-" in part:
-            a, b = part.split("-", 1)
-            out += list(range(int(a), int(b) + 1))
-        else:
+        if _FRAME_PART.fullmatch(part):
             out.append(int(part))
-    return out
+            continue
+        return [], f"invalid frame spec: {part!r}"
+    return out, None
+
+
+def _frames(spec) -> list[int]:
+    """Compatibility wrapper: raises ValueError for invalid input."""
+    frames, err = parse_frames(spec)
+    if err:
+        raise ValueError(err)
+    return frames
 
 
 # ------------------------------------------------------------------ handlers
@@ -83,6 +111,9 @@ def h_run(args: dict) -> str:
 
 def h_render(args: dict) -> str:
     dcc = args.get("dcc", "blender")
+    frames, ferr = parse_frames(args["frames"])
+    if ferr or not frames:
+        return _j({"ok": False, "error": ferr or "frames is empty"})
     ad = A.get(dcc)
     if not ad.detect().get("found"):
         return _j({"error": f"{dcc} not found"})
@@ -90,7 +121,6 @@ def h_render(args: dict) -> str:
     if held:
         return _j({"error": "one GPU, one render: another job holds the lock",
                    "held_by": held})
-    frames = _frames(args["frames"])
     outdir = os.path.abspath(args["outdir"])
     argv = ad.render_argv(frames, outdir, int(args.get("samples", 128)),
                           int(args.get("pct", 100)), args["blend"], args.get("tag", ""))
@@ -128,10 +158,9 @@ def h_plan(args: dict) -> str:
     elif not os.path.exists(blend):
         blockers.append(f"blend does not exist: {blend}")
 
-    try:
-        frames = _frames(args.get("frames", ""))
-    except ValueError:
-        frames, _ = [], blockers.append("frames spec did not parse")
+    frames, ferr = parse_frames(args.get("frames", ""))
+    if ferr:
+        blockers.append(f"frames: {ferr}")
     if not frames:
         blockers.append("frames is empty")
 
@@ -157,7 +186,8 @@ def h_plan(args: dict) -> str:
     if held:
         warnings.append(f"{dcc} busy with {held.get('job')} - this render would queue")
 
-    argv = ad.render_argv(frames, outdir, samples, pct, blend or "<blend>") if info.get("found") else []
+    argv = (ad.render_argv(frames, outdir, samples, pct, blend or "<blend>")
+            if info.get("found") and outdir and frames else [])
     if argv:
         argv = [("<generated render script>" if a.endswith("_klieg_render.py") else a) for a in argv]
 
@@ -186,6 +216,8 @@ def h_jobs(args: dict) -> str:
                    "queued": [j for j in core.list_jobs(50) if j.get("state") == "queued"]})
     if not job:
         return _j({"error": "action requires 'job'"})
+    if not core.valid_job_id(job):
+        return _j({"ok": False, "error": f"invalid job id: {job!r}"})
     if action == "status":
         return _j(core.poll(job))
     if action == "log":

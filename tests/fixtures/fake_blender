@@ -1,0 +1,9 @@
+#!/bin/sh
+# Minimal Blender stand-in for tests that only need a discoverable binary.
+# A real bridge test skips when KLIEG_BLENDER points here.
+if [ "$1" = "--version" ]; then
+  echo "Blender 4.2.0 (fixture)"
+  exit 0
+fi
+echo "klieg fixture: not a real Blender" >&2
+exit 1

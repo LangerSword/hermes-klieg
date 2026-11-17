@@ -121,8 +121,14 @@ def _feature_vector(f: dict):
 
 # ------------------------------------------------------------------ store
 def _store(path: str | None = None) -> str:
-    p = path or os.path.join(os.environ.get("HERMES_PLUGIN_DATA", "~/.hermes/plugin-data"),
-                             "klieg", "taste.jsonl")
+    if path is None:
+        try:
+            from . import klieg_core as core
+        except ImportError:
+            import klieg_core as core
+        p = os.path.join(core.data_dir(), "taste.jsonl")
+    else:
+        p = path
     os.makedirs(os.path.dirname(os.path.expanduser(p)), exist_ok=True)
     return os.path.expanduser(p)
 

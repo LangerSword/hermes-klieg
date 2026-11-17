@@ -83,6 +83,15 @@ class Blender(Adapter):
     binaries = ("blender",)
     fallback_globs = ("/opt/blender*/blender", "/snap/bin/blender")
 
+    def find_binary(self) -> str | None:
+        override = os.environ.get("KLIEG_BLENDER")
+        if override and os.path.isfile(override) and os.access(override, os.X_OK):
+            return override
+        return super().find_binary()
+
+    def version(self, path: str) -> str:
+        return super().version(path)
+
     def run_argv(self, script, blend=None, args=None):
         argv = [self.find_binary() or "blender", "-b", "--factory-startup"]
         if blend:
