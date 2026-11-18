@@ -115,6 +115,7 @@ breaks that lookup. Run Blender with `PATH=/usr/bin:/bin`.
 | gates, live | `klieg_cli.py gate loop/stats/flash --frames …` | loop closed at 0.0 diff; 0 flashes/s |
 | plugin admission | `hermes plugins validate .` | validation passed |
 | registration | `hermes plugins doctor .` | 13 tools, 1 hook |
+| served surface | `python3 smoke_load.py` | load + register + hook/handler dispatch, LOAD SMOKE OK (stdlib only) |
 
 `VERIFICATION.md` gives each check with its output, and each claim that is not verified.
 

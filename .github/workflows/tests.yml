@@ -34,3 +34,5 @@ jobs:
           import klieg_tools as t
           print("tools:", [s["name"] for s in t.TOOL_SPECS])
           PY
+      - name: served-surface smoke (load, register, dispatch hook + handler)
+        run: python smoke_load.py

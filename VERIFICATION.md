@@ -133,6 +133,32 @@ The cautions are deliberate and documented, not suppressed: the `*_dir_access` h
 write **deny-list** in `klieg_tools.py` (paths Klieg refuses, see SECURITY.md), and the
 catalog entry mentions `os.environ` to describe the allow-list that replaces it.
 
+### Served-surface smoke
+
+`validate`/`doctor` run `register()` in isolation but never drive the registered hook or a
+handler. `smoke_load.py` closes that gap: it loads `__init__.py` as a package with relative
+imports, registers against a recording context, then dispatches the real `pre_tool_call`
+callback and a real handler. Stdlib only — no numpy/Pillow, no Blender, no plugin host. It
+runs in CI on every OS/Python cell.
+
+```
+$ python3 smoke_load.py
+version: 0.2.0
+registered tools: 13 [...]
+registered hooks: ['pre_tool_call']
+hook klieg_render   {...frames 0-1...}      -> approve
+hook klieg_probe    {}                      -> None
+hook klieg_gate     {gate: flash, ...}      -> None
+hook klieg_gate     {script: m.py}          -> approve
+hook klieg_session  {action: status}        -> None
+hook klieg_session  {action: eval, ...}     -> approve
+hook klieg_ledger   {action: check, ...}    -> None
+hook klieg_ledger   {action: seal, ...}     -> approve
+klieg_ledger check(no-such-job) -> {"ok": false, "error": "...no ledger; seal it first"}
+
+LOAD SMOKE OK
+```
+
 ## End-to-end, through the plugin
 
 `scripts/e2e.py` drives the same code path the tools use: it renders frames 1-2 with
