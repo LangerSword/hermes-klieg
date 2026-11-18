@@ -75,7 +75,7 @@ def main() -> int:
             break
         time.sleep(1)
     pv = core.verify(pj)
-    size = os.path.getsize("/tmp/klieg-e2e/e2e_ig.mp4") if os.path.exists("/tmp/klieg-e2e/e2e_ig.mp4") else 0
+    size = os.path.getsize(FINAL) if os.path.exists(FINAL) else 0
     print("   state:", pst.get("state"), "verify:", pv["ok"], "bytes:", size)
 
     print("\nE2E", "OK" if (v["ok"] and pv["ok"] and size > 0) else "FAILED")

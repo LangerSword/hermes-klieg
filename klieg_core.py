@@ -227,7 +227,6 @@ def _spawn(job: str, name: str, spec: dict, dcc: str, what: str) -> dict:
     log = os.path.join(jd, "log.txt")
     child_env, dropped = child_environment(spec.get("env") or {})
     argv = spec["argv"]
-
     script = f"{shlex.join(argv)}; echo $? > {shlex.quote(os.path.join(jd, 'exit'))}"
     # The marker exists BEFORE the child starts. A fast child can write its artefact
     # within the same clock tick; comparing against time.time() taken after Popen
@@ -251,7 +250,8 @@ def _spawn(job: str, name: str, spec: dict, dcc: str, what: str) -> dict:
                   state="running", started=started, marker=marker, log=log,
                   cwd=spec.get("cwd") or os.getcwd(), argv=argv,
                   guard=spec.get("guard") or [], expect=spec.get("expect") or {},
-                  frames=spec.get("frames"), env_dropped=dropped)
+                  frames=spec.get("frames"), env_dropped=dropped,
+                  meta=spec.get("meta") or {})
     if dcc:
         _take_lock(dcc, job, proc.pid)
     _LIVE[job] = proc
@@ -262,7 +262,8 @@ def _spawn(job: str, name: str, spec: dict, dcc: str, what: str) -> dict:
 def launch(name: str, argv: list[str], cwd: str | None = None,
            env: dict | None = None, guard: list[str] | None = None,
            dcc: str = "", what: str = "", expect: dict | None = None,
-           frames: int | None = None, queue: bool = True) -> dict:
+           frames: int | None = None, queue: bool = True,
+           meta: dict | None = None) -> dict:
     """Launch a job, or queue it behind the current GPU holder.
 
     A locked GPU used to mean a refusal; a refusal is a bad answer for the second
@@ -286,12 +287,14 @@ def launch(name: str, argv: list[str], cwd: str | None = None,
     jd = _job_dir(job)
     os.makedirs(jd, exist_ok=True)
     spec = dict(argv=argv, cwd=cwd or os.getcwd(), env=spec_env,
-                guard=guard or [], expect=expect or {}, frames=frames)
+                guard=guard or [], expect=expect or {}, frames=frames,
+                meta=meta or {})
 
     if dcc and queue and gpu_busy(dcc):
         _write_status(job, job=job, name=name, what=what, dcc=dcc, state="queued",
                       created=time.time(), started=None, spec=spec,
-                      guard=guard or [], expect=expect or {}, frames=frames)
+                      guard=guard or [], expect=expect or {}, frames=frames,
+                      meta=meta or {})
         return {"job": job, "state": "queued", "dcc": dcc,
                 "position": _queue_position(job),
                 "held_by": (gpu_busy(dcc) or {}).get("job")}

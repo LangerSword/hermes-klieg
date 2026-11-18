@@ -439,6 +439,26 @@ def _write_allowed(path: str) -> str | None:
     return None
 
 
+_NUM_PNG = re.compile(r"^(\d+)\.png$")
+
+
+def _frame_sequence(frames_dir: str):
+    """The numbered PNGs, in frame order. Returns ((nums, paths, widths), None)
+    or (None, error). Non-numbered PNGs cannot be a sequence and are reported."""
+    entries = []
+    for n in os.listdir(frames_dir):
+        m = _NUM_PNG.fullmatch(n)
+        if m:
+            entries.append((int(m.group(1)), m.group(1), n))
+    if not entries:
+        return None, f"no numbered PNG frames (NNNN.png) in {frames_dir}"
+    entries.sort()
+    nums = [i for i, _, _ in entries]
+    paths = [os.path.join(frames_dir, n) for _, _, n in entries]
+    widths = {len(digits) for _, digits, _ in entries}
+    return (nums, paths, widths), None
+
+
 @_handler
 def h_publish(args: dict) -> str:
     """Encode with explicit BT.709 and the tags in the stream, or phones shift gamma."""
@@ -457,13 +477,42 @@ def h_publish(args: dict) -> str:
         return _j({"error": refusal, "out": out})
     if not os.path.isdir(frames):
         return _j({"error": f"frames_dir does not exist: {frames}"})
-    if not any(n.endswith(".png") for n in os.listdir(frames)):
-        return _j({"error": f"no PNG frames in {frames}"})
+    seq, serr = _frame_sequence(frames)
+    if seq is None:
+        return _j({"error": serr or "no frames"})
+    nums, paths, widths = seq
     audio = args.get("audio")
     if audio and not os.path.exists(audio):
         return _j({"error": f"audio does not exist: {audio}"})
-    fps = str(fps)
     os.makedirs(os.path.dirname(out), exist_ok=True)
+
+    # image2 only probes start numbers 0-4: a mid-sequence render (frames
+    # 100-110) failed outright, and a gapped set (0,110,230 - a shape
+    # klieg_render explicitly accepts) silently encoded up to the first gap
+    # and reported success. Contiguous runs get -start_number; anything else
+    # is enumerated frame-by-frame with the concat demuxer.
+    contiguous = nums[-1] - nums[0] + 1 == len(nums)
+    if contiguous and len(widths) == 1:
+        pattern = os.path.join(frames, f"%0{widths.pop()}d.png")
+        argv = ["ffmpeg", "-y", "-framerate", str(fps),
+                "-start_number", str(nums[0]), "-i", pattern]
+    else:
+        concat = os.path.join(core.data_dir(), f"publish-{os.urandom(4).hex()}.concat.txt")
+
+        def _esc(p: str) -> str:
+            return p.replace("'", "'\\''")
+
+        lines = []
+        for p in paths:
+            lines.append(f"file '{_esc(p)}'")
+            lines.append(f"duration {1.0 / fps:.6f}")
+        # No repeated last entry: with image inputs the repeat is an extra
+        # decoded frame, not just a duration fix. One file entry = one frame.
+        with open(concat, "w") as f:
+            f.write("\n".join(lines) + "\n")
+        argv = ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", concat]
+    if audio:
+        argv += ["-i", audio, "-c:a", "aac", "-b:a", "320k", "-ar", "48000", "-shortest"]
     scale = ("scale=in_color_matrix=bt709:out_color_matrix=bt709:out_range=tv,"
              # libx264 + yuv420p needs even dimensions; a 25 % render is often odd,
              # and "width not divisible by 2" is not a helpful thing to hand a user
@@ -471,9 +520,6 @@ def h_publish(args: dict) -> str:
     tags = ["-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709",
             "-color_range", "tv",
             "-bsf:v", "h264_metadata=colour_primaries=1:transfer_characteristics=1:matrix_coefficients=1"]
-    argv = ["ffmpeg", "-y", "-framerate", fps, "-i", os.path.join(frames, "%04d.png")]
-    if audio:
-        argv += ["-i", audio, "-c:a", "aac", "-b:a", "320k", "-ar", "48000", "-shortest"]
     argv += ["-vf", scale, "-c:v", "libx264", "-preset", "slow", "-profile:v", "high"]
     if crf is not None:
         argv += ["-crf", str(crf)]
@@ -481,7 +527,10 @@ def h_publish(args: dict) -> str:
         argv += ["-b:v", args.get("bitrate", "16M")]
     argv += tags + [out]
     return _j(core.launch(args.get("name", "publish"), argv, guard=[out],
-                          what=f"encode -> {out}"))
+                          what=f"encode {len(nums)} frames -> {out}",
+                          meta={"frames_dir": frames, "frame_count": len(nums),
+                                "first_frame": nums[0], "last_frame": nums[-1],
+                                "gapped": not contiguous}))
 
 
 # ------------------------------------------------------------------ live session
