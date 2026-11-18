@@ -1,10 +1,10 @@
 # Catalog entry draft for github.com/NousResearch/hermes-agent -> plugin-catalog/klieg.yaml
-# `sha` is the plugin-repo commit that contains the fixes (f1fa6f48da12f8063f1ad1d1c60133215fce4411).
+# `sha` is the plugin-repo commit that contains the 0.2.0 work (62d89ac9cd27e1525d84b4eeb11dcfd54f29bafa).
 
 name: klieg
 repo: https://github.com/LangerSword/hermes-klieg
-sha: f1fa6f48da12f8063f1ad1d1c60133215fce4411
-version: "0.1.0"
+sha: 62d89ac9cd27e1525d84b4eeb11dcfd54f29bafa
+version: "0.2.0"
 title: Klieg
 description: >-
   A DCC bridge for motion and design work: Blender, Houdini, Nuke, Cinema 4D, After Effects
@@ -13,17 +13,24 @@ description: >-
   and the promised frame count, so a render that dies at frame 3 of 288, or emits frames from
   a blend that failed to rebuild, cannot report success. klieg_plan resolves a pass (argv,
   expected files, a duration predicted from this machine's own history, every blocker) without
-  running it. One GPU, one render: a second request queues behind the holder instead of
-  starting a second Cycles process, and queue=false refuses. Children get a 13-variable
-  environment allow-list, never os.environ, and key/token/secret names are dropped and
-  recorded. klieg_publish encodes with explicit BT.709 conversion and colour tags in the
-  bitstream.
+  running it or writing anything. One GPU, one render: a second request queues behind the
+  holder with its position in that host's queue, queue=false refuses, and killing the holder
+  dispatches the next job. klieg_publish encodes with explicit BT.709 conversion and colour
+  tags in the bitstream, including mid-sequence and gapped frame sets. Built-in gates (flash,
+  loop, stats, safe_band) measure any frame set with numpy/Pillow, no DCC required.
+  klieg_ledger seals a finished job's provenance - scene, script, every frame, colour
+  manifest, encode - into sha256 commitments and checks it for drift later. Children get a
+  13-variable environment allow-list, never os.environ, and key/token/secret names are dropped
+  and recorded.
 
-  Disclosure - klieg_run, klieg_track and klieg_gate execute model-authored Python inside the
-  host application with the user's privileges, and are approval-gated per call; unattended runs
-  fail closed. Klieg is not a sandbox: an approved script is arbitrary code, and a malicious
-  scene file executes when the host opens it. A live session bridge into a running Blender is available through klieg_session; other hosts remain batch-only.
-  After Effects and Resolve are reported present-but-unsupported rather than faked.
+  Disclosure - klieg_run, klieg_track and klieg_gate script=... execute model-authored Python
+  inside the host application with the user's privileges, and are approval-gated per call;
+  approval is per action (read-only actions of mixed tools pass free); unattended runs fail
+  closed. Klieg is not a sandbox: an approved script is arbitrary code, and a malicious scene
+  file executes when the host opens it. The flash gate is a screening approximation, not a
+  certified Harding test; the ledger detects drift but is not a signature. A live session
+  bridge into a running Blender is available through klieg_session; other hosts remain
+  batch-only. After Effects and Resolve are reported present-but-unsupported rather than faked.
 maintainer: LangerSword
 tier: community
 category: tools
