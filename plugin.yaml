@@ -9,8 +9,10 @@ description: >
   pictures - Blender, Houdini, Nuke, Cinema 4D, After Effects, Resolve - through
   one adapter interface: probe what is installed, run a script inside the host,
   render frames as detached resumable jobs that survive the agent's shell, and
-  measure the result instead of trusting it. Long GPU work never holds the
-  interactive terminal, because that is what kills it.
+  measure the result instead of trusting it. Built-in gates (flash, loop, stats,
+  safe band) measure any frame set without a DCC, and the shot ledger seals a
+  job's provenance - scene to frames to encode - then checks it for drift. Long
+  GPU work never holds the interactive terminal, because that is what kills it.
 requires_hermes: ">=0.22.0"
 python_dependencies:
   - "numpy>=1.26,<3"

@@ -16,6 +16,7 @@ try:  # loaded as a Hermes plugin package
     from . import klieg_colour as colour_mod
     from . import klieg_taste as taste_mod
     from . import klieg_ledger as ledger_mod
+    from . import klieg_gates as gates_mod
 except ImportError:  # loaded standalone (tests, scripts)
     import klieg_adapters as A
     import klieg_core as core
@@ -23,6 +24,7 @@ except ImportError:  # loaded standalone (tests, scripts)
     import klieg_colour as colour_mod
     import klieg_taste as taste_mod
     import klieg_ledger as ledger_mod
+    import klieg_gates as gates_mod
 
 
 def _j(obj) -> str:
@@ -391,10 +393,27 @@ def h_track(args: dict) -> str:
 
 @_handler
 def h_gate(args: dict) -> str:
-    """Run a measurement script and return the JSON block it prints.
+    """Run a measurement and return numbers, not a feeling.
 
-    A gate is a number, not a feeling: the script must print `KLIIEG_GATE {json}`.
+    Two paths: a built-in gate (flash/loop/stats/safe_band) measured directly
+    over a frame directory with numpy/Pillow - no DCC, no model-authored code -
+    or a script inside a DCC that must print `KLIIEG_GATE {json}`.
     """
+    gate = args.get("gate")
+    if gate:
+        if args.get("script"):
+            return _j({"error": "give gate or script, not both"})
+        frames_dir = args.get("frames_dir")
+        if not frames_dir or not os.path.isdir(frames_dir):
+            return _j({"error": f"frames_dir does not exist: {frames_dir}"})
+        fps = _int_arg(args, "fps", 30, lo=1, hi=240)
+        try:
+            gates_mod._deps()
+        except ImportError as e:
+            return _j({"error": f"optional dependency missing: {e}",
+                       "hint": "install numpy and Pillow to use built-in gates"})
+        return _j(gates_mod.run(gate, os.path.abspath(frames_dir), fps,
+                                args.get("params") or {}))
     dcc = args.get("dcc", "blender")
     script = args.get("script") or ""
     resolved = os.path.abspath(os.path.expanduser(script)) if script else ""
@@ -791,10 +810,13 @@ TOOL_SPECS = [
                          "blend": {"type": "string"}, "out": {"type": "string"},
                          "timeout": {"type": "integer"}}, ["script"])),
     dict(name="klieg_gate", handler=h_gate, emoji="⚖️",
-         description="Run a measurement script; it must print KLIIEG_GATE {json}. Returns the numbers, not a verdict.",
-         schema=_schema({"dcc": {"type": "string"}, "script": {"type": "string"},
+         description="Measure, don't trust: built-in gates (flash, loop, stats, safe_band) over a frames_dir with no DCC, or a script in a DCC that prints KLIIEG_GATE {json}. Returns numbers, not verdicts.",
+         schema=_schema({"gate": {"type": "string", "enum": ["flash", "loop", "stats", "safe_band"],
+                                  "description": "built-in measurement over frames_dir; no script needed"},
+                         "frames_dir": {"type": "string"}, "fps": {"type": "integer"},
+                         "dcc": {"type": "string"}, "script": {"type": "string"},
                          "blend": {"type": "string"}, "params": {"type": "object"},
-                         "timeout": {"type": "integer"}}, ["script"])),
+                         "timeout": {"type": "integer"}})),
     dict(name="klieg_publish", handler=h_publish, emoji="📦",
          description="Encode frames to MP4 with explicit BT.709 conversion and colour tags in the bitstream.",
          schema=_schema({"frames_dir": {"type": "string"}, "out": {"type": "string"},

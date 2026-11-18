@@ -64,6 +64,13 @@ def pre_tool_call(tool_name: str, args: dict | None = None, **_kwargs):
         return {"action": "approve",
                 "message": f"klieg_ledger: seal job {args.get('job', '')} (hashes inputs and outputs)",
                 "rule_key": "klieg:klieg_ledger"}
+    if tool_name == "klieg_gate":
+        # Built-in gates only read frames and compute numbers: no model-authored
+        # code, no GPU, no writes. Script gates still execute code and prompt.
+        if args.get("gate") and not args.get("script"):
+            return None
+        return {"action": "approve", "message": f"klieg_gate: {_detail(tool_name, args)}",
+                "rule_key": "klieg:klieg_gate"}
     if tool_name in EXECUTING:
         return {"action": "approve", "message": f"{tool_name}: {_detail(tool_name, args)}".strip(),
                 "rule_key": f"klieg:{tool_name}"}

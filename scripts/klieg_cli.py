@@ -61,6 +61,12 @@ def main() -> int:
     lg.add_argument("action", choices=["seal", "check", "show"])
     lg.add_argument("--job", required=True)
 
+    gt = sub.add_parser("gate", help="built-in measurement over frames (no DCC)")
+    gt.add_argument("gate", choices=["flash", "loop", "stats", "safe_band"])
+    gt.add_argument("--frames", required=True)
+    gt.add_argument("--fps", type=int, default=30)
+    gt.add_argument("--params", default="{}", help="JSON object of gate parameters")
+
     a = ap.parse_args()
 
     if a.cmd == "probe":
@@ -98,6 +104,11 @@ def main() -> int:
         res = json.loads(T.h_ledger({"action": a.action, "job": a.job}))
         show(res)
         return 0 if res.get("ok") else 1
+    if a.cmd == "gate":
+        res = json.loads(T.h_gate({"gate": a.gate, "frames_dir": a.frames,
+                                   "fps": a.fps, "params": json.loads(a.params)}))
+        show(res)
+        return 0 if "error" not in res else 1
     return 1
 
 
