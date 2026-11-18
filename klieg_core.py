@@ -270,7 +270,10 @@ def launch(name: str, argv: list[str], cwd: str | None = None,
     state and starts as soon as the holder exits - advanced by any later poll,
     list or dispatch call, so no daemon is required.
     """
-    job = f"{name}-{uuid.uuid4().hex[:8]}"
+    # A model-chosen name with spaces or slashes must not raise: sanitize to the
+    # job-id alphabet, keep the uuid suffix for uniqueness.
+    clean = re.sub(r"[^A-Za-z0-9_-]", "-", str(name or "job"))[:48].strip("-") or "job"
+    job = f"{clean}-{uuid.uuid4().hex[:8]}"
     if not valid_job_id(job):
         raise ValueError(f"invalid generated job id: {job!r}")
     spec_env = env or {}

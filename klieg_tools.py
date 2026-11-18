@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 import json
 import os
 import re
@@ -26,8 +27,63 @@ def _j(obj) -> str:
     return json.dumps(obj, indent=1)
 
 
+class _InputError(Exception):
+    """Bad input that must reach the model as a JSON error, never a traceback."""
+
+    def __init__(self, payload: dict):
+        super().__init__(payload.get("error", "bad input"))
+        self.payload = payload
+
+
+def _handler(fn):
+    """Turn input errors and host timeouts into data.
+
+    Every verb is wrapped: a mistyped argument is a correction the model can
+    make, and a stack trace is not. TimeoutExpired carries its own timeout, so
+    the hint stays accurate without per-handler bookkeeping.
+    """
+    @functools.wraps(fn)
+    def wrap(args: dict) -> str:
+        try:
+            return fn(args or {})
+        except _InputError as e:
+            return _j(e.payload)
+        except subprocess.TimeoutExpired as e:
+            return _j(_timeout_result(e.timeout))
+    return wrap
+
+
+def _get_adapter(dcc: str):
+    """The adapter, or a structured unknown-host error. Never a KeyError."""
+    try:
+        return A.get(dcc)
+    except KeyError as e:
+        raise _InputError({"error": str(e)}) from e
+
+
+def _int_arg(args: dict, key: str, default: int, lo: int | None = None, hi: int | None = None) -> int:
+    """A validated integer, or a structured error. Never a ValueError."""
+    raw = args.get(key, default)
+    try:
+        v = int(raw)
+    except (TypeError, ValueError):
+        raise _InputError({"error": f"{key} must be an integer, got {raw!r}"})
+    if lo is not None and v < lo:
+        raise _InputError({"error": f"{key} must be >= {lo}, got {v}"})
+    if hi is not None and v > hi:
+        raise _InputError({"error": f"{key} must be <= {hi}, got {v}"})
+    return v
+
+
+def _timeout_result(seconds) -> dict:
+    return {"error": f"timed out after {seconds}s",
+            "hint": "the host is slow or stuck; for long work use bg=true (klieg_run) "
+                    "or raise timeout, and check the job log"}
+
+
 _FRAME_PART = re.compile(r"^\d+$")
 _FRAME_RANGE = re.compile(r"^(\d+)-(\d+)$")
+MAX_FRAMES = 100_000  # a weak model typing 0-999999999 must not allocate a billion ints
 
 
 def parse_frames(spec) -> tuple[list[int], str | None]:
@@ -38,6 +94,8 @@ def parse_frames(spec) -> tuple[list[int], str | None]:
             if not _FRAME_PART.fullmatch(str(x).strip()):
                 return [], f"invalid frame: {x!r}"
             out.append(int(x))
+            if len(out) > MAX_FRAMES:
+                return [], f"frame list exceeds {MAX_FRAMES} frames"
         return out, None
     text = str(spec or "").strip()
     if not text:
@@ -52,12 +110,16 @@ def parse_frames(spec) -> tuple[list[int], str | None]:
             a, b = int(m.group(1)), int(m.group(2))
             if b < a:
                 return [], f"reversed frame range: {part}"
+            if b - a + 1 > MAX_FRAMES:
+                return [], f"range {part} exceeds {MAX_FRAMES} frames"
             out += list(range(a, b + 1))
             continue
         if _FRAME_PART.fullmatch(part):
             out.append(int(part))
             continue
         return [], f"invalid frame spec: {part!r}"
+    if len(out) > MAX_FRAMES:
+        return [], f"frame spec exceeds {MAX_FRAMES} frames"
     return out, None
 
 
@@ -70,6 +132,7 @@ def _frames(spec) -> list[int]:
 
 
 # ------------------------------------------------------------------ handlers
+@_handler
 def h_probe(args: dict) -> str:
     return _j({"adapters": A.probe_all()})
 
@@ -84,12 +147,13 @@ def _script_error(path: str) -> dict | None:
     return None
 
 
+@_handler
 def h_run(args: dict) -> str:
     dcc = args.get("dcc", "blender")
     err = _script_error(args.get("script", ""))
     if err:
         return _j(err)
-    ad = A.get(dcc)
+    ad = _get_adapter(dcc)
     info = ad.detect()
     if not info.get("found"):
         return _j({"error": f"{dcc} not found on PATH", "probe": info})
@@ -102,27 +166,42 @@ def h_run(args: dict) -> str:
     if args.get("bg"):
         return _j(core.launch(args.get("name", "run"), argv, guard=args.get("guard") or [],
                               env=A.SAFE_ENV, dcc=dcc, what=args.get("script", "")))
-    p = core.run_child(argv, timeout=args.get("timeout", 600), cwd=os.getcwd(),
-                       extra_env=A.SAFE_ENV)
+    timeout = _int_arg(args, "timeout", 600, lo=1)
+    p = core.run_child(argv, timeout=timeout, cwd=os.getcwd(), extra_env=A.SAFE_ENV)
     return _j({"exit": p.returncode,
                "stdout_tail": "\n".join((p.stdout or "").splitlines()[-40:]),
                "stderr_tail": "\n".join((p.stderr or "").splitlines()[-20:])})
 
 
+@_handler
 def h_render(args: dict) -> str:
     dcc = args.get("dcc", "blender")
-    frames, ferr = parse_frames(args["frames"])
+    # Validate input before probing the environment: a bad-input error must win
+    # on every host, even one without the DCC installed.
+    frames, ferr = parse_frames(args.get("frames"))
     if ferr or not frames:
         return _j({"ok": False, "error": ferr or "frames is empty"})
-    ad = A.get(dcc)
+    blend = args.get("blend")
+    if not blend:
+        return _j({"error": "blend is required"})
+    if not os.path.exists(blend):
+        return _j({"error": f"blend does not exist: {blend}"})
+    if not args.get("outdir"):
+        return _j({"error": "outdir is required"})
+    samples = _int_arg(args, "samples", 128, lo=1)
+    pct = _int_arg(args, "pct", 100, lo=1, hi=100)
+    ad = _get_adapter(dcc)
     if not ad.detect().get("found"):
         return _j({"error": f"{dcc} not found"})
     # No early refusal here: the queue decision belongs to core.launch, which
     # parks the job behind the holder (queue=True) or refuses it (queue=False).
     # Refusing here made the engine's queue unreachable from the tool.
     outdir = os.path.abspath(args["outdir"])
-    argv = ad.render_argv(frames, outdir, int(args.get("samples", 128)),
-                          int(args.get("pct", 100)), args["blend"], args.get("tag", ""))
+    try:
+        argv = ad.render_argv(frames, outdir, samples, pct, blend, args.get("tag", ""))
+    except NotImplementedError:
+        return _j({"error": f"{dcc} renders are not supported by this adapter yet; "
+                            "klieg_run can drive its script CLI"})
     guard = args.get("guard") or [
         os.path.join(outdir, "%04d.png" % frames[0]),
         os.path.join(outdir, "%04d.png" % frames[-1])]
@@ -134,6 +213,7 @@ def h_render(args: dict) -> str:
                           queue=bool(args.get("queue", True))))
 
 
+@_handler
 def h_plan(args: dict) -> str:
     """Resolve a render without running it: the argv, the files it must produce,
     the predicted duration, and every reason it would fail.
@@ -174,21 +254,29 @@ def h_plan(args: dict) -> str:
             warnings.append(f"outdir is not empty ({len(os.listdir(outdir))} entries); "
                             "old frames can mimic a finished render")
 
-    samples = int(args.get("samples", 128))
-    pct = int(args.get("pct", 100))
-    if pct < 1 or pct > 100:
-        blockers.append("pct must be 1..100")
-    if samples < 1:
-        blockers.append("samples must be >= 1")
+    try:
+        samples = _int_arg(args, "samples", 128, lo=1)
+    except _InputError as e:
+        blockers.append(e.payload["error"])
+        samples = 128
+    try:
+        pct = _int_arg(args, "pct", 100, lo=1, hi=100)
+    except _InputError as e:
+        blockers.append(e.payload["error"])
+        pct = 100
 
     held = core.gpu_busy(dcc) if info.get("found") else None
     if held:
         warnings.append(f"{dcc} busy with {held.get('job')} - this render would queue")
 
-    argv = (ad.render_argv(frames, outdir, samples, pct, blend or "<blend>")
-            if info.get("found") and outdir and frames else [])
+    argv = []
+    if info.get("found") and outdir and frames:
+        try:
+            argv = ad.render_argv(frames, outdir, samples, pct, blend or "<blend>")
+        except NotImplementedError:
+            blockers.append(f"{dcc} renders are not supported by this adapter yet")
     if argv:
-        argv = [("<generated render script>" if a.endswith("_klieg_render.py") else a) for a in argv]
+        argv = [("<generated render script>" if "_klieg_render" in a else a) for a in argv]
 
     plan = {
         "dcc": dcc, "version": info.get("version"),
@@ -204,11 +292,13 @@ def h_plan(args: dict) -> str:
     return _j(plan)
 
 
+@_handler
 def h_jobs(args: dict) -> str:
     action = args.get("action", "list")
     job = args.get("job", "")
     if action == "list":
-        return _j({"jobs": core.list_jobs(int(args.get("limit", 20)))})
+        limit = _int_arg(args, "limit", 20, lo=1, hi=500)
+        return _j({"jobs": core.list_jobs(limit)})
     if action == "queue":
         started = core.dispatch()
         return _j({"started": started,
@@ -220,7 +310,8 @@ def h_jobs(args: dict) -> str:
     if action == "status":
         return _j(core.poll(job))
     if action == "log":
-        return _j({"job": job, "log": core.tail(job, int(args.get("lines", 40)))})
+        lines = _int_arg(args, "lines", 40, lo=1, hi=2000)
+        return _j({"job": job, "log": core.tail(job, lines)})
     if action == "verify":
         return _j(core.verify(job))
     if action == "kill":
@@ -246,15 +337,19 @@ print("KLIIEG_SCENE", json.dumps({
 '''
 
 
+@_handler
 def h_scene(args: dict) -> str:
     dcc = args.get("dcc", "blender")
-    ad = A.get(dcc)
+    ad = _get_adapter(dcc)
     if dcc != "blender":
         return _j({"error": f"scene inspection for {dcc} lands in 0.2"})
+    blend = args.get("blend")
+    if blend and not os.path.exists(blend):
+        return _j({"error": f"blend does not exist: {blend}"})
     script = os.path.join(core.data_dir(), "_klieg_scene.py")
     with open(script, "w") as f:
         f.write(SCENE_SCRIPT)
-    argv = ad.run_argv(script, blend=args.get("blend"))
+    argv = ad.run_argv(script, blend=blend)
     p = core.run_child(argv, timeout=300, extra_env=A.SAFE_ENV)
     for line in (p.stdout or "").splitlines():
         if line.startswith("KLIIEG_SCENE "):
@@ -262,15 +357,23 @@ def h_scene(args: dict) -> str:
     return _j({"error": "no scene block in output", "stderr": (p.stderr or "")[-800:]})
 
 
+@_handler
 def h_track(args: dict) -> str:
     """Run a projection script and hand back the JSON it writes."""
     dcc = args.get("dcc", "blender")
-    ad = A.get(dcc)
-    argv = ad.run_argv(args["script"], blend=args.get("blend"),
+    err = _script_error(args.get("script", ""))
+    if err:
+        return _j(err)
+    ad = _get_adapter(dcc)
+    blend = args.get("blend")
+    if blend and not os.path.exists(blend):
+        return _j({"error": f"blend does not exist: {blend}"})
+    argv = ad.run_argv(args["script"], blend=blend,
                        args=[args["out"]] if args.get("out") else None)
     if argv is None:
         return _j({"error": f"{dcc} cannot be driven headlessly in 0.1"})
-    p = core.run_child(argv, timeout=args.get("timeout", 1800), extra_env=A.SAFE_ENV)
+    timeout = _int_arg(args, "timeout", 1800, lo=1)
+    p = core.run_child(argv, timeout=timeout, extra_env=A.SAFE_ENV)
     out = args.get("out")
     res = {"exit": p.returncode,
            "stdout_tail": "\n".join((p.stdout or "").splitlines()[-20:])}
@@ -282,6 +385,7 @@ def h_track(args: dict) -> str:
     return _j(res)
 
 
+@_handler
 def h_gate(args: dict) -> str:
     """Run a measurement script and return the JSON block it prints.
 
@@ -292,12 +396,13 @@ def h_gate(args: dict) -> str:
     resolved = os.path.abspath(os.path.expanduser(script)) if script else ""
     if not script or not os.path.isfile(resolved):
         return _j({"ok": False, "error": f"script not found: {resolved or '<empty>'}"})
-    ad = A.get(dcc)
+    ad = _get_adapter(dcc)
     argv = ad.run_argv(resolved, blend=args.get("blend"),
                        args=[json.dumps(args.get("params") or {})])
     if argv is None:
         return _j({"error": f"{dcc} cannot be driven headlessly in 0.1"})
-    p = core.run_child(argv, timeout=args.get("timeout", 1800), extra_env=A.SAFE_ENV)
+    timeout = _int_arg(args, "timeout", 1800, lo=1)
+    p = core.run_child(argv, timeout=timeout, extra_env=A.SAFE_ENV)
     for line in (p.stdout or "").splitlines():
         if line.startswith("KLIIEG_GATE "):
             try:
@@ -334,8 +439,17 @@ def _write_allowed(path: str) -> str | None:
     return None
 
 
+@_handler
 def h_publish(args: dict) -> str:
     """Encode with explicit BT.709 and the tags in the stream, or phones shift gamma."""
+    if not args.get("frames_dir"):
+        return _j({"error": "frames_dir is required"})
+    if not args.get("out"):
+        return _j({"error": "out is required"})
+    fps = _int_arg(args, "fps", 30, lo=1, hi=240)
+    crf = None
+    if args.get("crf") is not None:
+        crf = _int_arg(args, "crf", 18, lo=0, hi=51)
     frames = os.path.abspath(args["frames_dir"])
     out = os.path.abspath(args["out"])
     refusal = _write_allowed(out)
@@ -348,7 +462,7 @@ def h_publish(args: dict) -> str:
     audio = args.get("audio")
     if audio and not os.path.exists(audio):
         return _j({"error": f"audio does not exist: {audio}"})
-    fps = str(args.get("fps", 30))
+    fps = str(fps)
     os.makedirs(os.path.dirname(out), exist_ok=True)
     scale = ("scale=in_color_matrix=bt709:out_color_matrix=bt709:out_range=tv,"
              # libx264 + yuv420p needs even dimensions; a 25 % render is often odd,
@@ -361,8 +475,8 @@ def h_publish(args: dict) -> str:
     if audio:
         argv += ["-i", audio, "-c:a", "aac", "-b:a", "320k", "-ar", "48000", "-shortest"]
     argv += ["-vf", scale, "-c:v", "libx264", "-preset", "slow", "-profile:v", "high"]
-    if args.get("crf"):
-        argv += ["-crf", str(args["crf"])]
+    if crf is not None:
+        argv += ["-crf", str(crf)]
     else:
         argv += ["-b:v", args.get("bitrate", "16M")]
     argv += tags + [out]
@@ -385,6 +499,7 @@ def _save_sessions(d: dict) -> None:
         json.dump(d, f, indent=1)
 
 
+@_handler
 def h_session(args: dict) -> str:
     action = args.get("action", "status")
     sock = args.get("socket") or ""
@@ -392,11 +507,12 @@ def h_session(args: dict) -> str:
 
     if action == "start":
         dcc = args.get("dcc", "blender")
-        ad = A.get(dcc)
+        ad = _get_adapter(dcc)
         if not ad.detect().get("found"):
             return _j({"error": f"{dcc} not found"})
         if dcc != "blender":
             return _j({"error": f"live bridge for {dcc} lands in a later adapter; Blender works today"})
+        wait = _int_arg(args, "wait", 90, lo=0, hi=600)  # 0 = launch, do not block for the socket
         sid = os.urandom(4).hex()
         sock = os.path.join(core.data_dir(), f"live-{sid}.sock")
         server = os.path.join(os.path.dirname(os.path.abspath(__file__)),
@@ -405,13 +521,15 @@ def h_session(args: dict) -> str:
             return _j({"error": f"bridge server script not found: {server}"})
         argv = [ad.find_binary(), "-b"]
         if args.get("blend"):
+            if not os.path.exists(args["blend"]):
+                return _j({"error": f"blend does not exist: {args['blend']}"})
             argv.append(args["blend"])
         argv += ["--python", server, "--", sock]
         job = core.launch("live", argv, guard=[sock], env=A.SAFE_ENV, dcc=dcc,
                           what=f"live bridge -> {sock}", queue=False)
         if job.get("state") == "refused":
             return _j(job)
-        deadline = time.time() + float(args.get("wait", 90))
+        deadline = time.time() + wait
         while time.time() < deadline and not os.path.exists(sock):
             time.sleep(0.3)
         ok = os.path.exists(sock)
@@ -434,7 +552,8 @@ def h_session(args: dict) -> str:
             return _j({"error": "socket is required when more than one session exists",
                        "sockets": socks})
 
-    br = bridge_mod.Bridge(sock, timeout=float(args.get("timeout", 20)))
+    btimeout = _int_arg(args, "timeout", 20, lo=1, hi=600)
+    br = bridge_mod.Bridge(sock, timeout=btimeout)
     try:
         if action == "status":
             info = br.info()
@@ -464,6 +583,7 @@ def h_session(args: dict) -> str:
 
 
 # ------------------------------------------------------------------ colour
+@_handler
 def h_colour(args: dict) -> str:
     action = args.get("action", "probe")
     dcc = args.get("dcc", "blender")
@@ -471,7 +591,7 @@ def h_colour(args: dict) -> str:
         blend = args.get("blend")
         if action != "probe" and not blend:
             return _j({"error": "blend is required"})
-        ad = A.get(dcc)
+        ad = _get_adapter(dcc)
         if not ad.detect().get("found"):
             return _j({"error": f"{dcc} not found"})
         sock = args.get("socket")
@@ -502,6 +622,7 @@ def h_colour(args: dict) -> str:
 
 
 # ------------------------------------------------------------------ taste
+@_handler
 def h_taste(args: dict) -> str:
     """Taste verbs need numpy/Pillow; report a missing dep as data, never a trace."""
     action = args.get("action", "list")
@@ -521,7 +642,10 @@ def h_taste(args: dict) -> str:
         path = args.get("frame")
         if not path or not os.path.exists(path):
             return _j({"error": f"frame does not exist: {path}"})
-        return _j(taste_mod.record(path, bool(args.get("accepted")),
+        if not isinstance(args.get("accepted"), bool):
+            return _j({"error": "accepted must be an explicit true/false; "
+                                "a missing verdict would silently train the model"})
+        return _j(taste_mod.record(path, args["accepted"],
                                    args.get("reason", ""), args.get("tags", [])))
     if action == "train":
         return _j(taste_mod.train())
