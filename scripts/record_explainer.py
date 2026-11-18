@@ -29,7 +29,7 @@ def main() -> int:
     url = HTML.as_uri()
     raw = WORK / "raw.webm"
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
+        browser = p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
         ctx = browser.new_context(
             viewport={"width": 1920, "height": 1080},
             record_video_dir=str(WORK),

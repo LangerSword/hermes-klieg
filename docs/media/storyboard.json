@@ -1,67 +1,15 @@
 {
  "fps": 30,
- "duration": 52.0,
+ "duration": 50.0,
+ "lane": "cinematic explainer (GSAP HTML, rendered frame-by-frame); no terminal, no VO",
  "beats": [
-  {
-   "name": "probe",
-   "start": 0.0,
-   "end": 5.0,
-   "caption": "One bridge, six hosts | klieg probe | Blender 5.3.0 found",
-   "claim": null
-  },
-  {
-   "name": "render",
-   "start": 5.0,
-   "end": 12.0,
-   "caption": "render detaches | Shell can die. Job keeps log + exit + status.",
-   "claim": null
-  },
-  {
-   "name": "verify",
-   "start": 12.0,
-   "end": 18.0,
-   "caption": "verify trusts artefacts | exists AND mtime >= start AND count | ok: true",
-   "claim": null
-  },
-  {
-   "name": "gate",
-   "start": 18.0,
-   "end": 24.0,
-   "caption": "gates measure, no DCC | klieg gate loop | loop_closed: true | 0.0 diff",
-   "claim": null
-  },
-  {
-   "name": "seal",
-   "start": 24.0,
-   "end": 30.0,
-   "caption": "seal the provenance | scene + frames + colour -> sha256 ledger",
-   "claim": null
-  },
-  {
-   "name": "check",
-   "start": 30.0,
-   "end": 36.0,
-   "caption": "check the seal | klieg ledger check | intact: true",
-   "claim": null
-  },
-  {
-   "name": "catch",
-   "start": 36.0,
-   "end": 44.0,
-   "caption": "then a frame is re-touched | ledger check | intact: false | changed: 0002.png",
-   "claim": null
-  },
-  {
-   "name": "end",
-   "start": 44.0,
-   "end": 52.0,
-   "caption": "Klieg | github.com/LangerSword/hermes-klieg",
-   "claim": null
-  }
+  {"name": "title", "start": 0.0, "end": 6.0, "caption": "Klieg | a DCC bridge for Hermes", "claim": null},
+  {"name": "problem", "start": 6.0, "end": 15.0, "caption": "the failure this exists for | EXIT 0 then STALE", "claim": null},
+  {"name": "idea", "start": 15.0, "end": 23.0, "caption": "Truth is the artefact | mtime(frame) > started_at(job)", "claim": null},
+  {"name": "pipeline", "start": 23.0, "end": 37.0, "caption": "one path, six stops | agent gate adapter gpu-lock job verify", "claim": null},
+  {"name": "provenance", "start": 37.0, "end": 45.0, "caption": "then prove it stayed true | seal by hash, catch the drift", "claim": null},
+  {"name": "end", "start": 45.0, "end": 50.0, "caption": "github.com/LangerSword/hermes-klieg", "claim": "13 tools | 138 tests"}
  ],
- "numbers": {
-  "tools": 13,
-  "tests": 138
- },
+ "numbers": {"tools": 13, "tests": 138},
  "audio": "docs/media/music.wav synthesized in-repo (make_music.py); no VO"
 }

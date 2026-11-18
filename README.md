@@ -15,10 +15,12 @@ Then it seals what was produced, so you can prove later that nothing drifted.
 
 *Whiteboard: agent, approval gate, adapter, job directory, verify. 1600x900.*
 
-**[52s product demo](docs/media/klieg_demo.mp4)** — a real PTY capture, not a mock-up:
-probe, render, verify, a built-in gate, then the ledger seals the frames and catches a
-re-touched one. Captions plus an in-repo synth bed; no AI voice.
-Rebuild: `python scripts/capture_session.py` then `python scripts/make_demo_silent.py`.
+**[50s launch film](docs/media/klieg_demo.mp4)** — a cinematic explainer, not a screencast:
+the stale-frame trap, the artefact rule, the six-stop pipeline, then the ledger seals the
+frames and catches a re-touched one. GSAP motion, captions in the picture, an in-repo synth
+bed; no AI voice, no terminal.
+Rebuild: `python scripts/render_explainer.py` (renders the HTML frame-by-frame, then muxes).
+Source: [`docs/explainer/index.html`](docs/explainer/index.html).
 
 ## Six decisions
 
