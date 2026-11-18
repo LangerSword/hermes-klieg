@@ -15,9 +15,10 @@ Then it seals what was produced, so you can prove later that nothing drifted.
 
 *Whiteboard: agent, approval gate, adapter, job directory, verify. 1600x900.*
 
-**[50s explainer](docs/media/klieg_demo.mp4)** — motion UI, not a product capture.
-Rebuild: `node scripts/record_explainer.cjs` then mux (see `scripts/record_explainer.py`).
-Source: [`docs/explainer/index.html`](docs/explainer/index.html).
+**[52s product demo](docs/media/klieg_demo.mp4)** — a real PTY capture, not a mock-up:
+probe, render, verify, a built-in gate, then the ledger seals the frames and catches a
+re-touched one. Captions plus an in-repo synth bed; no AI voice.
+Rebuild: `python scripts/capture_session.py` then `python scripts/make_demo_silent.py`.
 
 ## Six decisions
 

@@ -1,14 +1,67 @@
 {
  "fps": 30,
- "duration": 50.0,
+ "duration": 52.0,
  "beats": [
-  {"name": "title", "start": 0.0, "end": 5.6, "caption": "Klieg a DCC bridge for Hermes", "claim": null},
-  {"name": "lie", "start": 5.6, "end": 14.2, "caption": "the failure this exists for EXIT 0 then STALE", "claim": null},
-  {"name": "idea", "start": 14.2, "end": 22.0, "caption": "Hermes writes the script. Klieg owns the hour after.", "claim": null},
-  {"name": "pipe", "start": 22.0, "end": 36.0, "caption": "agent gate adapter gpu lock job verify", "claim": null},
-  {"name": "rule", "start": 36.0, "end": 43.5, "caption": "mtime(newest) > started_at(job)", "claim": null},
-  {"name": "end", "start": 43.5, "end": 50.0, "caption": "github.com/LangerSword/hermes-klieg", "claim": "12 tools"}
+  {
+   "name": "probe",
+   "start": 0.0,
+   "end": 5.0,
+   "caption": "One bridge, six hosts | klieg probe | Blender 5.3.0 found",
+   "claim": null
+  },
+  {
+   "name": "render",
+   "start": 5.0,
+   "end": 12.0,
+   "caption": "render detaches | Shell can die. Job keeps log + exit + status.",
+   "claim": null
+  },
+  {
+   "name": "verify",
+   "start": 12.0,
+   "end": 18.0,
+   "caption": "verify trusts artefacts | exists AND mtime >= start AND count | ok: true",
+   "claim": null
+  },
+  {
+   "name": "gate",
+   "start": 18.0,
+   "end": 24.0,
+   "caption": "gates measure, no DCC | klieg gate loop | loop_closed: true | 0.0 diff",
+   "claim": null
+  },
+  {
+   "name": "seal",
+   "start": 24.0,
+   "end": 30.0,
+   "caption": "seal the provenance | scene + frames + colour -> sha256 ledger",
+   "claim": null
+  },
+  {
+   "name": "check",
+   "start": 30.0,
+   "end": 36.0,
+   "caption": "check the seal | klieg ledger check | intact: true",
+   "claim": null
+  },
+  {
+   "name": "catch",
+   "start": 36.0,
+   "end": 44.0,
+   "caption": "then a frame is re-touched | ledger check | intact: false | changed: 0002.png",
+   "claim": null
+  },
+  {
+   "name": "end",
+   "start": 44.0,
+   "end": 52.0,
+   "caption": "Klieg | github.com/LangerSword/hermes-klieg",
+   "claim": null
+  }
  ],
- "numbers": {"tools": 12, "tests": 38},
- "audio": "docs/media/music.wav synthesized in-repo; no VO"
+ "numbers": {
+  "tools": 13,
+  "tests": 138
+ },
+ "audio": "docs/media/music.wav synthesized in-repo (make_music.py); no VO"
 }

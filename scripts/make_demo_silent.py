@@ -39,36 +39,40 @@ OUT = os.path.join(REPO, "docs/media/klieg_demo.mp4")
 STORY = os.path.join(REPO, "docs/media/storyboard.json")
 WORK = "/tmp/klieg-demo-silent"
 FRAMES = os.path.join(WORK, "vframes")
-FILM = resolve_input("film")
+try:
+    FILM = resolve_input("film")
+except SystemExit:
+    FILM = ""  # no sheet beat in this cut; frames dir is optional
 MONO = "/usr/share/fonts/TTF/JetBrainsMonoNLNerdFontMono-Regular.ttf"
 TAG = "/usr/share/fonts/OTF/SpaceGrotesk-Regular.otf"
 
-# xevrion-ish: short, product first, captions carry the story (no TTS)
-# total target ~48s
+# 0.2.0 product cut: real PTY, product first, climax = ledger catches a tampered
+# frame. cast_t lands just after each key output; the playhead advances slowly
+# (0.15x) so each beat dwells on its moment. Captions carry the story (no TTS).
+# total ~52s; product footage beats 1-7 = ~85% of runtime.
 BEATS = [
-    # cold open: stale verify already on screen
-    dict(name="hook", start=0.0, end=6.0, mode="cast", cast_t=5.5,
-         title="A render finished.",
-         sub="Exit 0. Frames on disk. Wrong job."),
-    dict(name="stale", start=6.0, end=14.0, mode="cast", cast_t=7.5,
-         title="klieg jobs verify",
-         sub="stale: 1   artefacts: []   refused"),
-    dict(name="probe", start=14.0, end=22.0, mode="cast", cast_t=1.5,
-         title="probe  ->  plan",
-         sub="288 frames. Predicted duration. No GPU yet."),
-    dict(name="render", start=22.0, end=30.0, mode="cast", cast_t=14.0,
+    dict(name="probe", start=0.0, end=5.0, mode="cast", cast_t=2.3,
+         title="One bridge, six hosts",
+         sub="klieg probe | Blender 5.3.0 found"),
+    dict(name="render", start=5.0, end=12.0, mode="cast", cast_t=8.4,
          title="render detaches",
          sub="Shell can die. Job keeps log + exit + status."),
-    dict(name="verify", start=30.0, end=36.0, mode="cast", cast_t=17.0,
-         title="verify does not trust exit codes",
-         sub="exists  AND  mtime >= start  AND  count"),
-    dict(name="result", start=36.0, end=42.0, mode="sheet",
-         title="frames this job wrote",
-         sub="read off disk"),
-    dict(name="board", start=42.0, end=48.0, mode="board",
-         title="how it works",
-         sub="agent -> gate -> adapter -> job -> verify"),
-    dict(name="end", start=48.0, end=52.0, mode="end",
+    dict(name="verify", start=12.0, end=18.0, mode="cast", cast_t=9.6,
+         title="verify trusts artefacts",
+         sub="exists AND mtime >= start AND count | ok: true"),
+    dict(name="gate", start=18.0, end=24.0, mode="cast", cast_t=11.8,
+         title="gates measure, no DCC",
+         sub="klieg gate loop | loop_closed: true | 0.0 diff"),
+    dict(name="seal", start=24.0, end=30.0, mode="cast", cast_t=13.7,
+         title="seal the provenance",
+         sub="scene + frames + colour -> sha256 ledger"),
+    dict(name="check", start=30.0, end=36.0, mode="cast", cast_t=15.55,
+         title="check the seal",
+         sub="klieg ledger check | intact: true"),
+    dict(name="catch", start=36.0, end=44.0, mode="cast", cast_t=18.25,
+         title="then a frame is re-touched",
+         sub="ledger check | intact: false | changed: 0002.png"),
+    dict(name="end", start=44.0, end=52.0, mode="end",
          title="Klieg",
          sub="github.com/LangerSword/hermes-klieg"),
 ]
@@ -172,9 +176,12 @@ def draw_term(img, lines):
         col = INK
         if line.startswith("$") or "klieg" in line[:12]:
             col = ACC
-        if "stale" in line or '"ok": false' in line:
+        if line.lstrip().startswith("#"):
             col = WARN
-        if '"ok": true' in line:
+        if ("stale" in line or '"ok": false' in line
+                or '"intact": false' in line or '"changed"' in line):
+            col = WARN
+        if '"ok": true' in line or '"intact": true' in line or '"loop_closed": true' in line:
             col = OK
         d.text((x0 + 24, y), line, font=fm, fill=col)
         y += 28
@@ -220,12 +227,18 @@ def draw_board(img, t):
 
 def draw_end(img, tools, tests):
     d = ImageDraw.Draw(img)
-    d.rectangle([540, 40, W - 40, H - 40], fill=(10, 12, 16))
-    d.text((600, 320), "Klieg", font=font(TAG, 96), fill=INK)
-    d.text((604, 440), "DCC bridge for Hermes", font=font(TAG, 36), fill=DIM)
-    d.text((604, 520), "verify by mtime, not hope", font=font(MONO, 28), fill=ACC)
-    d.text((604, 620), "github.com/LangerSword/hermes-klieg", font=font(MONO, 26), fill=INK)
-    d.text((604, 680), f"{tools} tools  |  {tests} tests  |  real PTY", font=font(MONO, 22), fill=DIM)
+    # full-frame centered end card (no left caption strip on this beat)
+    cx = W // 2
+
+    def center(text, y, fnt, fill):
+        w = d.textlength(text, font=fnt)
+        d.text((cx - w / 2, y), text, font=fnt, fill=fill)
+
+    center("Klieg", 300, font(TAG, 110), INK)
+    center("DCC bridge for Hermes", 450, font(TAG, 40), DIM)
+    center("verify by mtime. seal by hash.", 550, font(MONO, 30), ACC)
+    center("github.com/LangerSword/hermes-klieg", 650, font(MONO, 30), INK)
+    center(f"{tools} tools  |  {tests} tests  |  real PTY", 730, font(MONO, 24), DIM)
 
 
 def main() -> int:
@@ -265,10 +278,11 @@ def main() -> int:
         local = t - beat["start"]
         img = Image.new("RGB", (W, H), BG)
         d = ImageDraw.Draw(img)
-        draw_caption(d, beat["title"], beat["sub"])
+        if beat["mode"] != "end":
+            draw_caption(d, beat["title"], beat["sub"])
 
         if beat["mode"] == "cast":
-            ct = min(float(beat["cast_t"]) + local * 0.7, cast_dur - 0.05)
+            ct = min(float(beat["cast_t"]) + local * 0.15, cast_dur - 0.05)
             lines = cast_until(events, ct).splitlines()
             draw_term(img, lines)
         elif beat["mode"] == "sheet":
