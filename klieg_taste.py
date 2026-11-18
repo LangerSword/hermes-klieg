@@ -52,8 +52,18 @@ def features(path: str, palette=DEFAULT_PALETTE) -> dict:
     if im.mode in ("RGBA", "LA"):
         raw = np.asarray(im.split()[-1])
         a = raw.astype(np.float32) / (65535.0 if raw.dtype == np.uint16 else 255.0)
-    rgb = np.asarray(im.convert("RGB")).astype(np.float32)
-    rgb = rgb / (65535.0 if rgb.max() > 255 else 255.0)
+    if im.mode.startswith("I;16") or im.mode == "I":
+        # Pillow's convert("RGB")/convert("L") CLIP 16-bit samples at 255
+        # instead of scaling: 1000/65535 would read as full white. Scale the
+        # raw array explicitly.
+        g = np.asarray(im).astype(np.float32) / 65535.0
+        rgb = np.stack([g, g, g], axis=-1)
+    else:
+        rgb_raw = np.asarray(im.convert("RGB"))
+        # Normalize by dtype, not content: a dark 16-bit frame whose samples all
+        # happen to be <= 255 is still 16-bit; the old max-value heuristic divided
+        # it by 255 and reported a frame 256x too bright.
+        rgb = rgb_raw.astype(np.float32) / (65535.0 if rgb_raw.dtype == np.uint16 else 255.0)
     if a is not None and a.min() < 0.99:
         m = a > 0.15
         if m.mean() < 0.001:
@@ -79,8 +89,10 @@ def features(path: str, palette=DEFAULT_PALETTE) -> dict:
     hist, _ = np.histogram(hue, bins=12, range=(0, 6), weights=sat)
     hist = hist / max(hist.sum(), 1e-6)
 
-    # spatial: where is the detail, and how much of the frame carries it
-    grey = np.asarray(Image.open(path).convert("L")).astype(np.float32) / 255.0
+    # spatial: where is the detail, and how much of the frame carries it.
+    # Same luma definition as the pixel stats (mean of channels), so 16-bit
+    # frames do not get a second, clipping conversion.
+    grey = rgb.mean(axis=2)
     gx = np.abs(np.diff(grey, axis=1)).mean()
     gy = np.abs(np.diff(grey, axis=0)).mean()
     edge = float(gx + gy)
@@ -159,7 +171,25 @@ def load() -> list[dict]:
 
 
 # ------------------------------------------------------------------ model
+def _fit(Z, y, epochs: int, lr: float):
+    np, _ = _deps()
+    w = np.zeros(Z.shape[1])
+    n = len(y)
+    for _ in range(epochs):
+        p = 1 / (1 + np.exp(-Z @ w))
+        w -= lr * (Z.T @ (p - y) / n + 1e-3 * w)
+    return w
+
+
 def train(epochs: int = 400, lr: float = 0.15) -> dict:
+    """Fit on all verdicts, but report accuracy on held-out verdicts.
+
+    Stratified k-fold (k up to 5, capped by the minority class): each fold is
+    scored by a model that never saw it, with standardisation computed on the
+    training fold only. The old code reported training accuracy while the
+    docstring promised held-out - a confident number from an overfit model is
+    exactly the failure this plugin exists to prevent.
+    """
     np, _ = _deps()
     rows = load()
     n = len(rows)
@@ -174,24 +204,49 @@ def train(epochs: int = 400, lr: float = 0.15) -> dict:
 
     mu, sd = X.mean(0), X.std(0)
     sd[sd < 1e-9] = 1.0
-    Z = (X - mu) / sd
-    Z = np.hstack([Z, np.ones((n, 1))])
-    w = np.zeros(Z.shape[1])
-
-    for _ in range(epochs):
-        p = 1 / (1 + np.exp(-Z @ w))
-        w -= lr * (Z.T @ (p - y) / n + 1e-3 * w)
+    Z = np.hstack([(X - mu) / sd, np.ones((n, 1))])
+    w = _fit(Z, y, epochs, lr)
 
     p = 1 / (1 + np.exp(-Z @ w))
-    pred = (p >= 0.5).astype(float)
-    acc = float((pred == y).mean())
+    train_acc = float(((p >= 0.5).astype(float) == y).mean())
+
+    # Held-out estimate: stratified folds, deterministic order.
+    pos, neg = np.flatnonzero(y == 1), np.flatnonzero(y == 0)
+    k = min(5, len(pos), len(neg))
+    cv_acc = None
+    if k >= 2:
+        rng = np.random.default_rng(7)
+        pos, neg = pos.copy(), neg.copy()
+        rng.shuffle(pos)
+        rng.shuffle(neg)
+        folds = [np.concatenate([pos[i::k], neg[i::k]]) for i in range(k)]
+        correct = total = 0
+        for i in range(k):
+            va = folds[i]
+            tr = np.concatenate([folds[j] for j in range(k) if j != i])
+            mu_t, sd_t = X[tr].mean(0), X[tr].std(0)
+            sd_t[sd_t < 1e-9] = 1.0
+            Ztr = np.hstack([(X[tr] - mu_t) / sd_t, np.ones((len(tr), 1))])
+            Zva = np.hstack([(X[va] - mu_t) / sd_t, np.ones((len(va), 1))])
+            wv = _fit(Ztr, y[tr], epochs, lr)
+            pv = 1 / (1 + np.exp(-Zva @ wv))
+            correct += int(((pv >= 0.5) == y[va]).sum())
+            total += len(va)
+        cv_acc = correct / total
+
+    acc = cv_acc if cv_acc is not None else train_acc
     names = sorted(rows[0]["features"]) + ["bias"]
-    weights = {k: round(float(v), 4) for k, v in zip(names, w)}
+    weights = {key: round(float(v), 4) for key, v in zip(names, w)}
     model = {"mu": mu.tolist(), "sd": sd.tolist(), "w": w.tolist(),
-             "names": names, "n": n, "acc": acc, "train_acc": acc}
+             "names": names, "n": n, "acc": acc, "train_acc": train_acc,
+             "cv_folds": k if cv_acc is not None else 0}
     with open(_store().replace(".jsonl", ".model.json"), "w") as fh:
         json.dump(model, fh)
     return {"trained": True, "n": n, "accuracy": round(acc, 3),
+            "holdout_accuracy": round(cv_acc, 3) if cv_acc is not None else None,
+            "train_accuracy": round(train_acc, 3),
+            "holdout_note": (f"{k}-fold stratified held-out" if cv_acc is not None else
+                             "fewer than 2 verdicts in a class: training accuracy only, treat as unverified"),
             "positive_rate": round(float(y.mean()), 3),
             "top": sorted(weights.items(), key=lambda kv: -abs(kv[1]))[:6]}
 
@@ -206,7 +261,22 @@ def score(frame_path: str) -> dict:
     with open(model_path) as fh:
         model = json.load(fh)
     f = features(frame_path)
-    x = _feature_vector({k: f[k] for k in model["names"] if k in f})
+    # A model trained on a different feature set (palette or version change)
+    # must not silently score with dropped columns: retrain once, then refuse.
+    expected = [k for k in model["names"] if k != "bias"]
+    if set(expected) != set(f):
+        t = train()
+        if not t.get("trained"):
+            return {"scored": False,
+                    "error": "model feature set no longer matches the extractor and retrain failed",
+                    **t}
+        with open(model_path) as fh:
+            model = json.load(fh)
+        expected = [k for k in model["names"] if k != "bias"]
+        if set(expected) != set(f):
+            return {"scored": False,
+                    "error": "model feature set no longer matches the extractor; record fresh verdicts"}
+    x = _feature_vector({k: f[k] for k in expected})
     z = (x - np.array(model["mu"])) / np.array(model["sd"])
     contrib = z * np.array(model["w"][:len(z)])
     p = float(1 / (1 + np.exp(-(contrib.sum() + model["w"][-1]))))
@@ -216,7 +286,9 @@ def score(frame_path: str) -> dict:
         "p_accept": round(p, 3),
         "verdict": "looks accepted" if p >= 0.5 else "looks rejected",
         "n_verdicts": model["n"],
-        "train_accuracy": model["acc"],
+        "accuracy": model["acc"],
+        "train_accuracy": model.get("train_acc", model["acc"]),
+        "holdout": bool(model.get("cv_folds", 0)),
         "why": [{"feature": model["names"][i], "z": round(float(z[i]), 2),
                  "weight": round(float(model["w"][i]), 3),
                  "pushed": "up" if contrib[i] > 0 else "down"} for i in order],
