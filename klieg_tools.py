@@ -117,10 +117,9 @@ def h_render(args: dict) -> str:
     ad = A.get(dcc)
     if not ad.detect().get("found"):
         return _j({"error": f"{dcc} not found"})
-    held = core.gpu_busy(dcc)
-    if held:
-        return _j({"error": "one GPU, one render: another job holds the lock",
-                   "held_by": held})
+    # No early refusal here: the queue decision belongs to core.launch, which
+    # parks the job behind the holder (queue=True) or refuses it (queue=False).
+    # Refusing here made the engine's queue unreachable from the tool.
     outdir = os.path.abspath(args["outdir"])
     argv = ad.render_argv(frames, outdir, int(args.get("samples", 128)),
                           int(args.get("pct", 100)), args["blend"], args.get("tag", ""))

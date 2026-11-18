@@ -100,13 +100,23 @@ def _lock_path(dcc: str) -> str:
 
 
 def gpu_busy(dcc: str) -> dict | None:
-    """One GPU, one render. Returns the holder if someone else holds the lock."""
+    """One GPU, one render. Returns the holder if someone else holds the lock.
+
+    Two ways a lock goes stale: the holder pid is gone, or the holder job already
+    reached a terminal state but its pid was reused by another process (os.kill
+    alone would then report busy forever). Check the job's own status first.
+    """
     p = _lock_path(dcc)
     if not os.path.exists(p):
         return None
     try:
         with open(p) as f:
             info = json.load(f)
+        holder = info.get("job") or ""
+        if valid_job_id(holder):
+            state = read_status(holder).get("state")
+            if state in ("done", "failed", "killed"):
+                raise ProcessLookupError(f"holder job {holder} is {state}")
         os.kill(int(info.get("pid", 0)), 0)
         return info
     except (ProcessLookupError, ValueError, OSError):
@@ -138,8 +148,14 @@ _LIVE: dict[str, subprocess.Popen] = {}
 
 
 def _queue_position(job: str) -> int:
+    """Position within this job's own host queue. A queued render on a free host
+    is not waiting behind a busy host's queue, so counting every queued job
+    across hosts reported a position that meant nothing."""
+    me = read_status(job)
+    host = me.get("dcc") or ""
     q = [(s.get("created") or 0, n) for n in os.listdir(jobs_dir())
-         if (s := read_status(n)).get("state") == "queued"]
+         if valid_job_id(n)
+         and (s := read_status(n)).get("state") == "queued" and (s.get("dcc") or "") == host]
     q.sort()
     for i, (_, n) in enumerate(q):
         if n == job:
@@ -294,7 +310,9 @@ def dispatch(dcc: str | None = None) -> list[dict]:
     for _, job, s in queued:
         host = s.get("dcc") or ""
         if host and gpu_busy(host):
-            break
+            # Skip only this job's host. A busy blender must not strand a queued
+            # job on a free host behind it in the FIFO scan.
+            continue
         spec = s.get("spec") or {}
         if not spec.get("argv"):
             _write_status(job, state="failed", note="queued job lost its argv")
@@ -461,6 +479,9 @@ def kill(job: str) -> dict:
     _write_status(job, state="killed", ended=time.time())
     if st.get("dcc"):
         release_lock(st["dcc"], job)
+        # The freed GPU should immediately go to the next queued job, not wait
+        # for somebody to poll or list.
+        dispatch(st["dcc"])
     return read_status(job)
 
 
