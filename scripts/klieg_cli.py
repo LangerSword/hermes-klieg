@@ -67,6 +67,17 @@ def main() -> int:
     gt.add_argument("--fps", type=int, default=30)
     gt.add_argument("--params", default="{}", help="JSON object of gate parameters")
 
+    mo = sub.add_parser("motion", help="author + render 2D motion design")
+    mo.add_argument("action", choices=["templates", "render", "preview"])
+    mo.add_argument("--template", default=None)
+    mo.add_argument("--params", default="{}", help="JSON template params")
+    mo.add_argument("--out", default=None)
+    mo.add_argument("--format", default="mp4", choices=["mp4", "gif"])
+    mo.add_argument("--fps", type=int, default=30)
+    mo.add_argument("--t", type=float, default=None)
+    mo.add_argument("--width", type=int, default=None)
+    mo.add_argument("--height", type=int, default=None)
+
     a = ap.parse_args()
 
     if a.cmd == "probe":
@@ -107,6 +118,25 @@ def main() -> int:
     if a.cmd == "gate":
         res = json.loads(T.h_gate({"gate": a.gate, "frames_dir": a.frames,
                                    "fps": a.fps, "params": json.loads(a.params)}))
+        show(res)
+        return 0 if "error" not in res else 1
+    if a.cmd == "motion":
+        margs = {"action": a.action}
+        if a.template:
+            margs["template"] = a.template
+            margs["params"] = json.loads(a.params)
+        if a.out:
+            margs["out"] = a.out
+        if a.action == "render":
+            margs["format"] = a.format
+            margs["fps"] = a.fps
+        if a.t is not None:
+            margs["t"] = a.t
+        if a.width:
+            margs["width"] = a.width
+        if a.height:
+            margs["height"] = a.height
+        res = json.loads(T.h_motion(margs))
         show(res)
         return 0 if "error" not in res else 1
     return 1

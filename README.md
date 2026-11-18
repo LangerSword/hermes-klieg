@@ -1,13 +1,12 @@
 # Klieg
 
-A DCC bridge for Hermes.
+Motion design for Hermes.
 
-Hermes writes a render script in one second. Then the render runs for forty minutes. The
-shell times out. The exit code is lost. You do not know if the frames exist.
-
-Klieg moves that work into a job. The job is detached. It writes a log. It writes its own
-exit code. Klieg calls the job done only when the files on disk are newer than the job start.
-Then it seals what was produced, so you can prove later that nothing drifted.
+Hermes can describe an animation; Klieg gives it hands to actually make one. Author a
+scene - kinetic type, a transition, a lower-third, a logo sting, a loop - and Klieg
+renders it to MP4/GIF locally, no API keys. The same job engine that drives Blender
+survives the wall-clock: detached, logged, and verified by the artefact on disk, not the
+exit code. Then it seals what was produced, so you can prove later that nothing drifted.
 
 **[Catalog entry](catalog/klieg.yaml)** · if this is useful, a star helps the next person find it.
 
@@ -21,6 +20,25 @@ frames and catches a re-touched one. GSAP motion, captions in the picture, an in
 bed; no AI voice, no terminal.
 Rebuild: `python scripts/render_explainer.py` (renders the HTML frame-by-frame, then muxes).
 Source: [`docs/explainer/index.html`](docs/explainer/index.html).
+
+## Motion design (the core)
+
+`klieg_motion` turns a scene into a film. Hermes authors a declarative spec (layers,
+keyframes, easing), raw HTML+GSAP, or starts from a template:
+
+- `action=templates` - starters: title-reveal, lower-third, kinetic-quote, logo-sting.
+- `action=render template=title-reveal params={"word":"KLIEG"} out=clip.mp4` - compiles
+  the scene and renders it frame-by-frame to MP4/GIF as a detached job; poll with
+  `klieg_jobs`, confirm with `verify`.
+- `action=preview ... t=2.5` - render one frame to iterate cheaply before a full render.
+
+Effects: fade, rise, drop, slide, scale, pop, blur, spin. Easing: expo / power / back /
+elastic. Text splits into chars or words for staggered kinetic type. Backgrounds: solid,
+gradient, grain, vignette. Output: 1080p, square, or vertical for social.
+
+Needs `playwright` + a chromium headless shell in the render interpreter (point
+`KLIEG_PYTHON` at it). Rendering is deterministic - every frame is fully painted, so
+motion is smooth with no screencast frame-drops.
 
 ## Six decisions
 
@@ -59,6 +77,7 @@ or added file. "These exact frames came from this exact scene" becomes checkable
 
 | tool | use |
 |---|---|
+| `klieg_motion` | **author + render 2D motion design**: scenes/templates -> MP4/GIF, preview a frame |
 | `klieg_probe` | list the hosts on this machine and their versions |
 | `klieg_plan` | resolve a render without running it (writes nothing) |
 | `klieg_scene` | read the engine, resolution, frame range, view transform, and object count |
@@ -110,14 +129,15 @@ breaks that lookup. Run Blender with `PATH=/usr/bin:/bin`.
 
 | check | command | result |
 |---|---|---|
-| tests (deps installed) | `python3 -W error::ResourceWarning -m unittest discover -s tests` | 138 tests, OK (1 skip) |
-| tests (bare stdlib) | same, without numpy/Pillow | 138 tests, OK (25 skips) |
+| tests (deps installed) | `python3 -W error::ResourceWarning -m unittest discover -s tests` | 158 tests, OK (1 skip) |
+| tests (bare stdlib) | same, without numpy/Pillow/playwright | 158 tests, OK (26 skips) |
+| motion, live | `klieg_cli.py motion render --template title-reveal …` | title-reveal rendered to a verified 1080p MP4 |
 | live bridge | `python3 scripts/test_bridge.py` | 10 of 10 checks on Blender 5.3.0; supports 4.2+ |
 | end to end | `python3 scripts/e2e.py` | frames 1-2 rendered, verified, encoded, 5,573 bytes |
 | ledger, live | `klieg_cli.py ledger seal/check --job e2e-…` | sealed, `intact: true` |
 | gates, live | `klieg_cli.py gate loop/stats/flash --frames …` | loop closed at 0.0 diff; 0 flashes/s |
 | plugin admission | `hermes plugins validate .` | validation passed |
-| registration | `hermes plugins doctor .` | 13 tools, 1 hook |
+| registration | `hermes plugins doctor .` | 14 tools, 1 hook |
 | served surface | `python3 smoke_load.py` | load + register + hook/handler dispatch, LOAD SMOKE OK (stdlib only) |
 
 `VERIFICATION.md` gives each check with its output, and each claim that is not verified.
@@ -135,6 +155,8 @@ breaks that lookup. Run Blender with `PATH=/usr/bin:/bin`.
 - The flash gate is a screening approximation, not a certification.
 - The ledger detects drift; it is not a signature. Anyone who can edit the files can edit
   the ledger.
+- `klieg_motion` needs playwright + a chromium headless shell; without them, render/preview
+  report the missing dependency as data (the compiler and templates still work).
 
 ## Security
 
@@ -150,8 +172,9 @@ Read `SECURITY.md` before you install.
 
 | component | role |
 |---|---|
-| Python 3.10+ standard library | the plugin, the job engine, the socket client, the ledger |
+| Python 3.10+ standard library | the plugin, the job engine, the socket client, the ledger, the motion compiler |
 | numpy, Pillow | `klieg_taste` features/scoring and the built-in gates; declared in `plugin.yaml`, imported on demand |
+| playwright + chromium headless shell | `klieg_motion` frame rendering; optional, set `KLIEG_PYTHON` to an interpreter that has it |
 | Blender 4.2 or later | the render host; `klieg_colour` reads display_device from `display_settings` (4.2-compatible path, tested against a fake 4.2 bpy) |
 | ffmpeg | encode, colour tags, probe |
 | POSIX unix socket | the live bridge; no TCP port |
@@ -159,7 +182,7 @@ Read `SECURITY.md` before you install.
 ## Layout
 
 ```
-plugin.yaml           manifest: 13 tools
+plugin.yaml           manifest: 14 tools
 klieg_core.py         jobs, queue, history, locks, verify
 klieg_adapters.py     six hosts, one interface
 klieg_tools.py        the verbs
@@ -169,9 +192,10 @@ klieg_colour.py       manifest, diff, tag check
 klieg_taste.py        features, verdicts, held-out model
 klieg_ledger.py       provenance: seal, check, show
 klieg_gates.py        flash, loop, stats, safe_band
+klieg_motion.py       motion compiler + templates (the authoring core)
 blender/              headless server and GUI add-on
-scripts/              cli, e2e, bridge test, whiteboard, demo cutter, qa
-tests/                138 cases, hermetic
+scripts/              cli, motion_render, e2e, bridge test, explainer, qa
+tests/                158 cases, hermetic
 ```
 
 MIT. The whiteboard, the demo, and the sample frames in this repository come from the

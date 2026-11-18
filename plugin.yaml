@@ -33,3 +33,4 @@ provides_tools:
   - klieg_colour
   - klieg_taste
   - klieg_ledger
+  - klieg_motion

@@ -17,6 +17,7 @@ JOBS_SAFE = frozenset({"list", "status", "log", "verify"})
 SESSION_SAFE = frozenset({"status", "list", "colour"})
 COLOUR_SAFE = frozenset({"probe", "compare", "tags"})
 LEDGER_SAFE = frozenset({"check", "show"})
+MOTION_SAFE = frozenset({"templates"})
 
 
 def _detail(tool_name: str, args: dict) -> str:
@@ -64,6 +65,14 @@ def pre_tool_call(tool_name: str, args: dict | None = None, **_kwargs):
         return {"action": "approve",
                 "message": f"klieg_ledger: seal job {args.get('job', '')} (hashes inputs and outputs)",
                 "rule_key": "klieg:klieg_ledger"}
+    if tool_name == "klieg_motion":
+        # render/preview execute model-authored HTML+JS and spawn a renderer;
+        # templates only lists starters.
+        if str(args.get("action") or "templates").lower() in MOTION_SAFE:
+            return None
+        return {"action": "approve",
+                "message": f"klieg_motion: {args.get('action')} {args.get('template') or args.get('out') or 'scene'}",
+                "rule_key": "klieg:klieg_motion"}
     if tool_name == "klieg_gate":
         # Built-in gates only read frames and compute numbers: no model-authored
         # code, no GPU, no writes. Script gates still execute code and prompt.

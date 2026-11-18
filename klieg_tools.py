@@ -7,6 +7,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 import time
 
 try:  # loaded as a Hermes plugin package
@@ -17,6 +18,7 @@ try:  # loaded as a Hermes plugin package
     from . import klieg_taste as taste_mod
     from . import klieg_ledger as ledger_mod
     from . import klieg_gates as gates_mod
+    from . import klieg_motion as motion_mod
 except ImportError:  # loaded standalone (tests, scripts)
     import klieg_adapters as A
     import klieg_core as core
@@ -25,6 +27,7 @@ except ImportError:  # loaded standalone (tests, scripts)
     import klieg_taste as taste_mod
     import klieg_ledger as ledger_mod
     import klieg_gates as gates_mod
+    import klieg_motion as motion_mod
 
 
 def _j(obj) -> str:
@@ -768,6 +771,106 @@ def h_ledger(args: dict) -> str:
     return _j({"error": f"unknown action {action}"})
 
 
+# ------------------------------------------------------------------ motion design
+def _motion_scene(args: dict):
+    """Resolve a scene to (html, width, height, duration, error)."""
+    spec = None
+    if args.get("template"):
+        try:
+            spec = motion_mod.template(args["template"], **(args.get("params") or {}))
+        except (ValueError, TypeError) as e:
+            return None, 0, 0, 0.0, {"error": str(e)}
+    elif args.get("scene"):
+        spec = args["scene"]
+    if spec is not None:
+        try:
+            html = motion_mod.compile_scene(spec)
+        except (ValueError, TypeError) as e:
+            return None, 0, 0, 0.0, {"error": str(e)}
+        return (html, int(spec.get("width", 1920)), int(spec.get("height", 1080)),
+                float(spec.get("duration", 6)), None)
+    if args.get("html"):
+        html = args["html"]
+    elif args.get("html_path"):
+        if not os.path.isfile(args["html_path"]):
+            return None, 0, 0, 0.0, {"error": f"html_path not found: {args['html_path']}"}
+        with open(args["html_path"]) as f:
+            html = f.read()
+    else:
+        return None, 0, 0, 0.0, {"error": "provide scene, template, html, or html_path"}
+    if not args.get("duration"):
+        return None, 0, 0, 0.0, {"error": "duration is required for raw html"}
+    try:
+        dur = float(args["duration"])
+    except (TypeError, ValueError):
+        return None, 0, 0, 0.0, {"error": "duration must be a number"}
+    return html, int(args.get("width", 1920)), int(args.get("height", 1080)), dur, None
+
+
+@_handler
+def h_motion(args: dict) -> str:
+    """Author and render 2D motion design: scenes -> MP4/GIF, or preview a frame."""
+    action = args.get("action", "templates")
+    if action == "templates":
+        return _j({"templates": motion_mod.list_templates(),
+                   "effects": sorted(motion_mod.EFFECTS),
+                   "hint": "action=render with template=<name> + params, or scene=<spec>; "
+                           "action=preview renders one frame at t for cheap iteration"})
+    if action not in ("render", "preview"):
+        return _j({"error": f"unknown action {action}"})
+    html, w, h, dur, err = _motion_scene(args)
+    if err or html is None:
+        return _j(err or {"error": "no scene resolved"})
+    w = int(args.get("width", w))
+    h = int(args.get("height", h))
+    fps = _int_arg(args, "fps", 30, lo=1, hi=60)
+    if dur <= 0:
+        return _j({"error": "duration must be > 0"})
+    mid = os.urandom(4).hex()
+    mdir = os.path.join(core.data_dir(), "motion")
+    os.makedirs(mdir, exist_ok=True)
+    html_path = os.path.join(mdir, f"scene-{mid}.html")
+    with open(html_path, "w") as f:
+        f.write(html)
+    py = os.environ.get("KLIEG_PYTHON") or sys.executable
+    engine = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scripts", "motion_render.py")
+
+    if action == "preview":
+        try:
+            t = float(args.get("t", dur / 2))
+        except (TypeError, ValueError):
+            return _j({"error": "t must be a number"})
+        out = os.path.abspath(os.path.expanduser(args["out"])) if args.get("out") else os.path.join(mdir, f"preview-{mid}.png")
+        if args.get("out"):
+            refusal = _write_allowed(out)
+            if refusal:
+                return _j({"error": refusal})
+        argv = [py, engine, html_path, out, "--preview", str(t), "--width", str(w), "--height", str(h)]
+        p = core.run_child(argv, timeout=120)
+        if p.returncode != 0:
+            return _j({"error": "preview failed", "detail": (p.stderr or p.stdout or "")[-600:],
+                       "hint": "needs playwright + chromium-headless-shell in the render interpreter"})
+        return _j({"preview": out, "t": t, "width": w, "height": h})
+
+    if not args.get("out"):
+        return _j({"error": "out is required"})
+    out = os.path.abspath(os.path.expanduser(args["out"]))
+    refusal = _write_allowed(out)
+    if refusal:
+        return _j({"error": refusal, "out": out})
+    fmt = args.get("format", "mp4")
+    if fmt not in ("mp4", "gif"):
+        return _j({"error": "format must be mp4 or gif"})
+    argv = [py, engine, html_path, out, "--fps", str(fps), "--duration", str(dur),
+            "--width", str(w), "--height", str(h), "--format", fmt]
+    if args.get("music"):
+        argv += ["--music", args["music"]]
+    return _j(core.launch(args.get("name", "motion"), argv, guard=[out],
+                          what=f"motion {fmt} {w}x{h} {dur}s -> {out}",
+                          meta={"scene_html": html_path, "format": fmt, "duration": dur,
+                                "width": w, "height": h, "fps": fps}))
+
+
 # ------------------------------------------------------------------ specs
 def _schema(props: dict, required: list[str] | None = None) -> dict:
     return {"type": "object", "properties": props, "required": required or []}
@@ -847,4 +950,15 @@ TOOL_SPECS = [
          description="Provenance for a finished job: seal hashes the scene, frames, colour manifest and encode into a ledger; check re-hashes and reports any drift; show reads the seal.",
          schema=_schema({"action": {"type": "string", "enum": ["seal", "check", "show"]},
                          "job": {"type": "string"}}, ["action", "job"])),
+    dict(name="klieg_motion", handler=h_motion, emoji="🎞️",
+         description="Author and render 2D motion design. templates lists starters; render turns a scene spec or template (kinetic type, transitions, lower-thirds, logo stings, loops) into MP4/GIF as a detached job; preview renders one frame at t for cheap iteration. Local, no API keys.",
+         schema=_schema({"action": {"type": "string", "enum": ["templates", "render", "preview"]},
+                         "template": {"type": "string"}, "params": {"type": "object"},
+                         "scene": {"type": "object", "description": "declarative layers/keyframes spec"},
+                         "html": {"type": "string"}, "html_path": {"type": "string"},
+                         "out": {"type": "string"}, "format": {"type": "string", "enum": ["mp4", "gif"]},
+                         "fps": {"type": "integer"}, "duration": {"type": "number"},
+                         "width": {"type": "integer"}, "height": {"type": "integer"},
+                         "t": {"type": "number"}, "music": {"type": "string"}, "name": {"type": "string"}},
+                        ["action"])),
 ]
