@@ -16,6 +16,7 @@ Khronos PBR Neutral and every frame is subtly wrong while every gate still passe
 
 from __future__ import annotations
 
+import ast
 import hashlib
 import json
 import os
@@ -82,14 +83,22 @@ def find_ocio_config() -> str | None:
 
 def probe_batch(blender: str, blend: str, timeout: int = 120) -> dict:
     """Read colour state from a headless Blender without opening a session."""
-    script = "/tmp/klieg_colour_probe.py"
+    # Confined to the plugin data dir with a unique name: a fixed /tmp path is
+    # shared by every profile and races concurrent probes.
+    script = os.path.join(core.data_dir(), f"colour-probe-{os.urandom(4).hex()}.py")
     with open(script, "w") as f:
         f.write(PROBE)
-    extra = {"PATH": "/usr/bin:/bin"}
+    extra = {"PATH": "/usr/bin:/bin:/usr/local/bin"}
     if os.environ.get("OCIO"):
         extra["OCIO"] = os.environ["OCIO"]
-    p = core.run_child([blender, "-b", blend, "-P", script],
-                       timeout=timeout, extra_env=extra)
+    try:
+        p = core.run_child([blender, "-b", blend, "-P", script],
+                           timeout=timeout, extra_env=extra)
+    finally:
+        try:
+            os.remove(script)
+        except OSError:
+            pass
     for line in (p.stdout or "").splitlines():
         if line.startswith("KLIIEG_COLOUR "):
             return json.loads(line.split(" ", 1)[1])
@@ -98,15 +107,20 @@ def probe_batch(blender: str, blend: str, timeout: int = 120) -> dict:
 
 def probe_session(bridge) -> dict:
     """Read colour state from a live session through the bridge."""
-    r = bridge.eval(code="import json", expr="None")
-    if not r.get("ok"):
-        raise RuntimeError(r.get("error"))
     code = PROBE.replace('print("KLIIEG_COLOUR " + json.dumps(manifest))',
                          "RESULT = manifest")
     r = bridge.eval(code=code, expr="__import__('json').dumps(RESULT, sort_keys=True)")
     if not r.get("ok"):
         raise RuntimeError(r.get("error"))
-    return json.loads(r["result"].strip("'"))
+    # The server answers with repr() of the JSON string. strip("'") broke on
+    # any value containing an apostrophe (repr escapes it as \'); literal_eval
+    # recovers the exact string.
+    raw = r["result"]
+    try:
+        s = ast.literal_eval(raw)
+    except (ValueError, SyntaxError):
+        s = raw
+    return json.loads(s)
 
 
 def stamp(manifest: dict) -> dict:

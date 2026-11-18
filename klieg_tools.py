@@ -588,7 +588,17 @@ def h_session(args: dict) -> str:
                    "note": "eval is approval-gated; the bridge executes on Blender's main thread"})
 
     if action == "list":
-        return _j({"sessions": [{"socket": k, **v} for k, v in sessions.items()]})
+        # Prune sessions whose host job has exited: a dead Blender must not
+        # keep counting toward "more than one session exists" forever.
+        live = {}
+        for k, v in sessions.items():
+            st = core.poll(v["job"]) if v.get("job") else {}
+            if st.get("state") in ("done", "failed", "killed"):
+                continue
+            live[k] = {**v, "job_state": st.get("state", "unknown")}
+        if len(live) != len(sessions):
+            _save_sessions(live)
+        return _j({"sessions": [{"socket": k, **v} for k, v in live.items()]})
 
     if not sock:
         socks = list(sessions)
@@ -652,10 +662,17 @@ def h_colour(args: dict) -> str:
             m = colour_mod.probe_batch(ad.find_binary(), blend)
         if action == "probe":
             return _j({"colour": colour_mod.stamp(m)})
+        # A relative blend path ("scene.blend") has dirname "" - resolve before
+        # defaulting, and apply the same write boundary publish uses.
+        into = os.path.abspath(os.path.expanduser(
+            args.get("into") or os.path.dirname(os.path.abspath(blend or "."))))
         if action == "write":
-            p = colour_mod.write(args.get("into") or os.path.dirname(blend), m)
+            refusal = _write_allowed(into)
+            if refusal:
+                return _j({"error": refusal, "into": into})
+            p = colour_mod.write(into, m)
             return _j({"written": p, "manifest": colour_mod.stamp(m)})
-        expected = colour_mod.read(args.get("into") or os.path.dirname(blend))
+        expected = colour_mod.read(into)
         if not expected:
             return _j({"error": "no colour_manifest.json to compare against"})
         diffs = colour_mod.compare(expected, m)
