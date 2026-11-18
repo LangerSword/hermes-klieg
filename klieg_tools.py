@@ -15,12 +15,14 @@ try:  # loaded as a Hermes plugin package
     from . import klieg_bridge as bridge_mod
     from . import klieg_colour as colour_mod
     from . import klieg_taste as taste_mod
+    from . import klieg_ledger as ledger_mod
 except ImportError:  # loaded standalone (tests, scripts)
     import klieg_adapters as A
     import klieg_core as core
     import klieg_bridge as bridge_mod
     import klieg_colour as colour_mod
     import klieg_taste as taste_mod
+    import klieg_ledger as ledger_mod
 
 
 def _j(obj) -> str:
@@ -165,7 +167,8 @@ def h_run(args: dict) -> str:
         return _j({"error": f"{dcc} cannot be driven headlessly in 0.1"})
     if args.get("bg"):
         return _j(core.launch(args.get("name", "run"), argv, guard=args.get("guard") or [],
-                              env=A.SAFE_ENV, dcc=dcc, what=args.get("script", "")))
+                              env=A.SAFE_ENV, dcc=dcc, what=args.get("script", ""),
+                              meta={"script": os.path.abspath(args["script"])}))
     timeout = _int_arg(args, "timeout", 600, lo=1)
     p = core.run_child(argv, timeout=timeout, cwd=os.getcwd(), extra_env=A.SAFE_ENV)
     return _j({"exit": p.returncode,
@@ -210,7 +213,8 @@ def h_render(args: dict) -> str:
                           what=f"{len(frames)} frames -> {outdir}",
                           expect={"dir": outdir, "min": len(frames), "ext": ".png"},
                           frames=len(frames),
-                          queue=bool(args.get("queue", True))))
+                          queue=bool(args.get("queue", True)),
+                          meta={"blend": os.path.abspath(blend)}))
 
 
 @_handler
@@ -728,6 +732,23 @@ def h_taste(args: dict) -> str:
                            "reason": r["reason"]} for r in rows[-5:]]})
 
 
+# ------------------------------------------------------------------ ledger
+@_handler
+def h_ledger(args: dict) -> str:
+    """Provenance: seal a finished job's inputs and outputs, check for drift."""
+    action = args.get("action", "show")
+    job = args.get("job", "")
+    if not job:
+        return _j({"error": "action requires 'job'"})
+    if action == "seal":
+        return _j(ledger_mod.seal(job))
+    if action == "check":
+        return _j(ledger_mod.check(job))
+    if action == "show":
+        return _j(ledger_mod.show(job))
+    return _j({"error": f"unknown action {action}"})
+
+
 # ------------------------------------------------------------------ specs
 def _schema(props: dict, required: list[str] | None = None) -> dict:
     return {"type": "object", "properties": props, "required": required or []}
@@ -800,4 +821,8 @@ TOOL_SPECS = [
                          "frame": {"type": "string"}, "accepted": {"type": "boolean"},
                          "reason": {"type": "string"},
                          "tags": {"type": "array", "items": {"type": "string"}}}, ["action"])),
+    dict(name="klieg_ledger", handler=h_ledger, emoji="🔏",
+         description="Provenance for a finished job: seal hashes the scene, frames, colour manifest and encode into a ledger; check re-hashes and reports any drift; show reads the seal.",
+         schema=_schema({"action": {"type": "string", "enum": ["seal", "check", "show"]},
+                         "job": {"type": "string"}}, ["action", "job"])),
 ]

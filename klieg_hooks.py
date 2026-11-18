@@ -16,6 +16,7 @@ READ_ONLY = frozenset({"klieg_probe", "klieg_scene", "klieg_plan", "klieg_taste"
 JOBS_SAFE = frozenset({"list", "status", "log", "verify"})
 SESSION_SAFE = frozenset({"status", "list", "colour"})
 COLOUR_SAFE = frozenset({"probe", "compare", "tags"})
+LEDGER_SAFE = frozenset({"check", "show"})
 
 
 def _detail(tool_name: str, args: dict) -> str:
@@ -57,6 +58,12 @@ def pre_tool_call(tool_name: str, args: dict | None = None, **_kwargs):
             return None
         return {"action": "approve", "message": f"klieg_colour: {_detail(tool_name, args)}",
                 "rule_key": "klieg:klieg_colour"}
+    if tool_name == "klieg_ledger":
+        if str(args.get("action") or "show").lower() in LEDGER_SAFE:
+            return None
+        return {"action": "approve",
+                "message": f"klieg_ledger: seal job {args.get('job', '')} (hashes inputs and outputs)",
+                "rule_key": "klieg:klieg_ledger"}
     if tool_name in EXECUTING:
         return {"action": "approve", "message": f"{tool_name}: {_detail(tool_name, args)}".strip(),
                 "rule_key": f"klieg:{tool_name}"}

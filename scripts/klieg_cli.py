@@ -57,6 +57,10 @@ def main() -> int:
     pub.add_argument("--audio", default=None)
     pub.add_argument("--fps", type=int, default=30)
 
+    lg = sub.add_parser("ledger", help="provenance: seal/check/show a finished job")
+    lg.add_argument("action", choices=["seal", "check", "show"])
+    lg.add_argument("--job", required=True)
+
     a = ap.parse_args()
 
     if a.cmd == "probe":
@@ -90,6 +94,10 @@ def main() -> int:
                                       "audio": a.audio, "fps": a.fps, "name": "publish"}))
         show(res)
         return 0
+    if a.cmd == "ledger":
+        res = json.loads(T.h_ledger({"action": a.action, "job": a.job}))
+        show(res)
+        return 0 if res.get("ok") else 1
     return 1
 
 

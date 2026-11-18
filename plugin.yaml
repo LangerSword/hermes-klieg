@@ -1,7 +1,7 @@
 name: klieg
 label: Klieg
 kind: standalone
-version: 0.1.0
+version: 0.2.0
 author: Lakshaya Sharma (LangerSword)
 homepage: https://github.com/LangerSword/hermes-klieg
 description: >
@@ -30,3 +30,4 @@ provides_tools:
   - klieg_session
   - klieg_colour
   - klieg_taste
+  - klieg_ledger
