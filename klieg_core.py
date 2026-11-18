@@ -15,14 +15,29 @@ import re
 import shlex
 import signal
 import subprocess
+import threading
 import time
 import uuid
 
 PLUGIN = "klieg"
+JOB_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+
+
+def valid_job_id(job: str) -> bool:
+    if not isinstance(job, str):
+        return False
+    return bool(JOB_ID_RE.fullmatch(job))
 
 
 def data_dir() -> str:
-    base = os.environ.get("HERMES_PLUGIN_DATA") or os.path.expanduser("~/.hermes/plugin-data")
+    """Per-profile data dir. HERMES_PLUGIN_DATA overrides; else derive from HERMES_HOME.
+
+    Using ~/.hermes directly made every profile share jobs. HERMES_HOME is the active
+    profile root, so jobs stay isolated.
+    """
+    base = (os.environ.get("HERMES_PLUGIN_DATA")
+            or os.path.join(os.environ.get("HERMES_HOME") or os.path.expanduser("~/.hermes"),
+                            "plugin-data"))
     p = os.path.join(base, PLUGIN)
     os.makedirs(p, exist_ok=True)
     return p
@@ -34,8 +49,18 @@ def jobs_dir() -> str:
     return p
 
 
+def _job_dir(job: str) -> str:
+    if not valid_job_id(job):
+        raise ValueError(f"invalid job id: {job!r}")
+    p = os.path.realpath(os.path.join(jobs_dir(), job))
+    root = os.path.realpath(jobs_dir())
+    if os.path.commonpath([p, root]) != root:
+        raise ValueError(f"job path escapes jobs dir: {job!r}")
+    return p
+
+
 def _status_path(job: str) -> str:
-    return os.path.join(jobs_dir(), job, "status.json")
+    return os.path.join(_job_dir(job), "status.json")
 
 
 def read_status(job: str) -> dict:
@@ -57,7 +82,7 @@ def _write_status(job_id: str, **kw) -> None:
 
 
 def tail(job: str, lines: int = 40) -> str:
-    p = os.path.join(jobs_dir(), job, "log.txt")
+    p = os.path.join(_job_dir(job), "log.txt")
     if not os.path.exists(p):
         return ""
     with open(p, "rb") as f:
@@ -144,14 +169,60 @@ def child_environment(extra: dict | None = None) -> tuple[dict, list[str]]:
     return env, dropped
 
 
+def run_child(argv: list[str], **kw) -> subprocess.CompletedProcess:
+    """Run a short child with the allow-listed environment.
+
+    Every foreground tool goes through here. Building env from os.environ at a call
+    site leaks the agent's provider keys into Blender/ffmpeg logs.
+    """
+    extra = kw.pop("extra_env", None) or {}
+    env, dropped = child_environment(extra)
+    kw.setdefault("capture_output", True)
+    kw.setdefault("text", True)
+    result = subprocess.run(argv, env=env, **kw)
+    setattr(result, "dropped_env", dropped)
+    return result
+
+
+def _watch(job: str, proc: subprocess.Popen, dcc: str) -> None:
+    """Finalize a job when its process exits, so the GPU lock is not held hostage
+    to somebody calling status or list. poll() remains safe as a backstop."""
+    proc.wait()
+    st = read_status(job)
+    if st.get("state") != "running":
+        return
+    exit_file = os.path.join(jobs_dir(), job, "exit")
+    try:
+        with open(exit_file) as f:
+            code = int((f.read() or "1").strip() or 1)
+    except (OSError, ValueError):
+        code = proc.returncode if proc.returncode is not None else 1
+    state = "done" if code == 0 else "failed"
+    _write_status(job, state=state, exit=code, ended=time.time())
+    if state == "done":
+        _record_history(read_status(job))
+    if dcc:
+        release_lock(dcc, job)
+
+
 def _spawn(job: str, name: str, spec: dict, dcc: str, what: str) -> dict:
     """Start an already-created job directory."""
-    jd = os.path.join(jobs_dir(), job)
+    jd = _job_dir(job)   # validate + confine before any file or process is created
     log = os.path.join(jd, "log.txt")
     child_env, dropped = child_environment(spec.get("env") or {})
     argv = spec["argv"]
 
     script = f"{shlex.join(argv)}; echo $? > {shlex.quote(os.path.join(jd, 'exit'))}"
+    # The marker exists BEFORE the child starts. A fast child can write its artefact
+    # within the same clock tick; comparing against time.time() taken after Popen
+    # made fresh files look stale. The marker's mtime is the real start boundary.
+    marker = os.path.join(jd, "started.marker")
+    with open(marker, "w"):
+        pass
+    # Equal mtimes already count as fresh (verify uses `mtime < started` for stale),
+    # so the marker alone handles same-tick child writes. Subtracting a margin would
+    # let an artefact touched just before launch() masquerade as fresh.
+    started = os.path.getmtime(marker)
     with open(log, "wb") as fh:
         proc = subprocess.Popen(
             ["/bin/sh", "-c", script],
@@ -161,13 +232,14 @@ def _spawn(job: str, name: str, spec: dict, dcc: str, what: str) -> dict:
         )
 
     _write_status(job, job=job, name=name, what=what, dcc=dcc, pid=proc.pid,
-                  state="running", started=time.time(), log=log,
+                  state="running", started=started, marker=marker, log=log,
                   cwd=spec.get("cwd") or os.getcwd(), argv=argv,
                   guard=spec.get("guard") or [], expect=spec.get("expect") or {},
                   frames=spec.get("frames"), env_dropped=dropped)
     if dcc:
         _take_lock(dcc, job, proc.pid)
     _LIVE[job] = proc
+    threading.Thread(target=_watch, args=(job, proc, dcc), daemon=True).start()
     return {"job": job, "pid": proc.pid, "log": log, "state": "running"}
 
 
@@ -183,6 +255,8 @@ def launch(name: str, argv: list[str], cwd: str | None = None,
     list or dispatch call, so no daemon is required.
     """
     job = f"{name}-{uuid.uuid4().hex[:8]}"
+    if not valid_job_id(job):
+        raise ValueError(f"invalid generated job id: {job!r}")
     spec_env = env or {}
 
     if dcc and gpu_busy(dcc) and not queue:
@@ -190,7 +264,7 @@ def launch(name: str, argv: list[str], cwd: str | None = None,
                 "error": "one GPU, one render: queue it or wait for the holder",
                 "held_by": (gpu_busy(dcc) or {}).get("job")}
 
-    jd = os.path.join(jobs_dir(), job)
+    jd = _job_dir(job)
     os.makedirs(jd, exist_ok=True)
     spec = dict(argv=argv, cwd=cwd or os.getcwd(), env=spec_env,
                 guard=guard or [], expect=expect or {}, frames=frames)
@@ -211,6 +285,8 @@ def dispatch(dcc: str | None = None) -> list[dict]:
     started = []
     queued = []
     for n in os.listdir(jobs_dir()):
+        if not valid_job_id(n):
+            continue
         s = read_status(n)
         if s.get("state") == "queued" and (dcc is None or s.get("dcc") == dcc):
             queued.append((s.get("created") or 0, n, s))
@@ -365,6 +441,9 @@ def verify(job: str) -> dict:
 def kill(job: str) -> dict:
     st = read_status(job)
     pid = int(st.get("pid") or 0)
+    # Mark killed BEFORE signalling: the watcher thread wakes on process exit and
+    # would otherwise finalize the job as failed while this call is still running.
+    _write_status(job, state="killed", ended=time.time())
     if pid:
         try:
             os.killpg(os.getpgid(pid), signal.SIGTERM)
@@ -388,6 +467,8 @@ def kill(job: str) -> dict:
 def list_jobs(limit: int = 20) -> list[dict]:
     found = []
     for name in os.listdir(jobs_dir()):
+        if not valid_job_id(name):
+            continue
         st = poll(name)
         if st.get("state") == "unknown":
             continue

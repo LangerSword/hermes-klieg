@@ -24,6 +24,8 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from paths import resolve_input
 sys.path.insert(0, REPO)
 import klieg_core as core
 import klieg_tools as tools
@@ -40,7 +42,7 @@ FRAMES = "/tmp/klieg-demo2/frames"
 OUT = os.path.join(REPO, "docs/media/klieg_demo.mp4")
 CAST = os.path.join(REPO, "docs/media/cast.json")
 BOARD = os.path.join(REPO, "docs/media/whiteboard.png")
-FILM = os.path.expanduser("~/projects/omnitrix-strobe/renders/frames")
+FILM = resolve_input("film")
 MONO = "/usr/share/fonts/TTF/JetBrainsMonoNLNerdFontMono-Regular.ttf"
 TAG = "/usr/share/fonts/OTF/SpaceGrotesk-Regular.otf"
 
@@ -279,7 +281,7 @@ def main() -> int:
         img.save(os.path.join(FRAMES, "%04d.png" % i), compress_level=1)
 
     print("muxing audio + encode...")
-    audio = os.path.expanduser("~/projects/omnitrix-strobe/deliver/audio/mix.wav")
+    audio = os.environ.get("KLIEG_AUDIO", "")
     silent = "/tmp/klieg-demo2/silent.mp4"
     # full HD, constant fps, dense keyframes — no mid-file seek traps later
     subprocess.run([

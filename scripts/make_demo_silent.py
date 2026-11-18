@@ -21,6 +21,8 @@ import sys
 from PIL import Image, ImageDraw, ImageFont
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from paths import resolve_input
 W, H, FPS = 1920, 1080, 30
 BG = (8, 10, 13)
 PANEL = (14, 17, 22)
@@ -37,7 +39,7 @@ OUT = os.path.join(REPO, "docs/media/klieg_demo.mp4")
 STORY = os.path.join(REPO, "docs/media/storyboard.json")
 WORK = "/tmp/klieg-demo-silent"
 FRAMES = os.path.join(WORK, "vframes")
-FILM = os.path.expanduser("~/projects/omnitrix-strobe/renders/frames")
+FILM = resolve_input("film")
 MONO = "/usr/share/fonts/TTF/JetBrainsMonoNLNerdFontMono-Regular.ttf"
 TAG = "/usr/share/fonts/OTF/SpaceGrotesk-Regular.otf"
 

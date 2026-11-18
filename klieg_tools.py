@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import time
 
@@ -25,20 +26,47 @@ def _j(obj) -> str:
     return json.dumps(obj, indent=1)
 
 
-def _frames(spec) -> list[int]:
+_FRAME_PART = re.compile(r"^\d+$")
+_FRAME_RANGE = re.compile(r"^(\d+)-(\d+)$")
+
+
+def parse_frames(spec) -> tuple[list[int], str | None]:
+    """Strictly parse N, A-B, or comma lists. Returns (frames, error)."""
     if isinstance(spec, list):
-        return [int(x) for x in spec]
+        out = []
+        for x in spec:
+            if not _FRAME_PART.fullmatch(str(x).strip()):
+                return [], f"invalid frame: {x!r}"
+            out.append(int(x))
+        return out, None
+    text = str(spec or "").strip()
+    if not text:
+        return [], None
     out: list[int] = []
-    for part in str(spec).split(","):
+    for part in text.split(","):
         part = part.strip()
         if not part:
+            return [], "empty frame in list"
+        m = _FRAME_RANGE.fullmatch(part)
+        if m:
+            a, b = int(m.group(1)), int(m.group(2))
+            if b < a:
+                return [], f"reversed frame range: {part}"
+            out += list(range(a, b + 1))
             continue
-        if "-" in part:
-            a, b = part.split("-", 1)
-            out += list(range(int(a), int(b) + 1))
-        else:
+        if _FRAME_PART.fullmatch(part):
             out.append(int(part))
-    return out
+            continue
+        return [], f"invalid frame spec: {part!r}"
+    return out, None
+
+
+def _frames(spec) -> list[int]:
+    """Compatibility wrapper: raises ValueError for invalid input."""
+    frames, err = parse_frames(spec)
+    if err:
+        raise ValueError(err)
+    return frames
 
 
 # ------------------------------------------------------------------ handlers
@@ -74,8 +102,8 @@ def h_run(args: dict) -> str:
     if args.get("bg"):
         return _j(core.launch(args.get("name", "run"), argv, guard=args.get("guard") or [],
                               env=A.SAFE_ENV, dcc=dcc, what=args.get("script", "")))
-    p = subprocess.run(argv, capture_output=True, text=True, timeout=args.get("timeout", 600),
-                       cwd=os.getcwd(), env={**os.environ, **A.SAFE_ENV})
+    p = core.run_child(argv, timeout=args.get("timeout", 600), cwd=os.getcwd(),
+                       extra_env=A.SAFE_ENV)
     return _j({"exit": p.returncode,
                "stdout_tail": "\n".join((p.stdout or "").splitlines()[-40:]),
                "stderr_tail": "\n".join((p.stderr or "").splitlines()[-20:])})
@@ -83,6 +111,9 @@ def h_run(args: dict) -> str:
 
 def h_render(args: dict) -> str:
     dcc = args.get("dcc", "blender")
+    frames, ferr = parse_frames(args["frames"])
+    if ferr or not frames:
+        return _j({"ok": False, "error": ferr or "frames is empty"})
     ad = A.get(dcc)
     if not ad.detect().get("found"):
         return _j({"error": f"{dcc} not found"})
@@ -90,7 +121,6 @@ def h_render(args: dict) -> str:
     if held:
         return _j({"error": "one GPU, one render: another job holds the lock",
                    "held_by": held})
-    frames = _frames(args["frames"])
     outdir = os.path.abspath(args["outdir"])
     argv = ad.render_argv(frames, outdir, int(args.get("samples", 128)),
                           int(args.get("pct", 100)), args["blend"], args.get("tag", ""))
@@ -128,10 +158,9 @@ def h_plan(args: dict) -> str:
     elif not os.path.exists(blend):
         blockers.append(f"blend does not exist: {blend}")
 
-    try:
-        frames = _frames(args.get("frames", ""))
-    except ValueError:
-        frames, _ = [], blockers.append("frames spec did not parse")
+    frames, ferr = parse_frames(args.get("frames", ""))
+    if ferr:
+        blockers.append(f"frames: {ferr}")
     if not frames:
         blockers.append("frames is empty")
 
@@ -157,7 +186,8 @@ def h_plan(args: dict) -> str:
     if held:
         warnings.append(f"{dcc} busy with {held.get('job')} - this render would queue")
 
-    argv = ad.render_argv(frames, outdir, samples, pct, blend or "<blend>") if info.get("found") else []
+    argv = (ad.render_argv(frames, outdir, samples, pct, blend or "<blend>")
+            if info.get("found") and outdir and frames else [])
     if argv:
         argv = [("<generated render script>" if a.endswith("_klieg_render.py") else a) for a in argv]
 
@@ -186,6 +216,8 @@ def h_jobs(args: dict) -> str:
                    "queued": [j for j in core.list_jobs(50) if j.get("state") == "queued"]})
     if not job:
         return _j({"error": "action requires 'job'"})
+    if not core.valid_job_id(job):
+        return _j({"ok": False, "error": f"invalid job id: {job!r}"})
     if action == "status":
         return _j(core.poll(job))
     if action == "log":
@@ -224,8 +256,7 @@ def h_scene(args: dict) -> str:
     with open(script, "w") as f:
         f.write(SCENE_SCRIPT)
     argv = ad.run_argv(script, blend=args.get("blend"))
-    p = subprocess.run(argv, capture_output=True, text=True, timeout=300,
-                       env={**os.environ, **A.SAFE_ENV})
+    p = core.run_child(argv, timeout=300, extra_env=A.SAFE_ENV)
     for line in (p.stdout or "").splitlines():
         if line.startswith("KLIIEG_SCENE "):
             return line.split(" ", 1)[1]
@@ -240,8 +271,7 @@ def h_track(args: dict) -> str:
                        args=[args["out"]] if args.get("out") else None)
     if argv is None:
         return _j({"error": f"{dcc} cannot be driven headlessly in 0.1"})
-    p = subprocess.run(argv, capture_output=True, text=True, timeout=args.get("timeout", 1800),
-                       env={**os.environ, **A.SAFE_ENV})
+    p = core.run_child(argv, timeout=args.get("timeout", 1800), extra_env=A.SAFE_ENV)
     out = args.get("out")
     res = {"exit": p.returncode,
            "stdout_tail": "\n".join((p.stdout or "").splitlines()[-20:])}
@@ -259,13 +289,16 @@ def h_gate(args: dict) -> str:
     A gate is a number, not a feeling: the script must print `KLIIEG_GATE {json}`.
     """
     dcc = args.get("dcc", "blender")
+    script = args.get("script") or ""
+    resolved = os.path.abspath(os.path.expanduser(script)) if script else ""
+    if not script or not os.path.isfile(resolved):
+        return _j({"ok": False, "error": f"script not found: {resolved or '<empty>'}"})
     ad = A.get(dcc)
-    argv = ad.run_argv(args["script"], blend=args.get("blend"),
+    argv = ad.run_argv(resolved, blend=args.get("blend"),
                        args=[json.dumps(args.get("params") or {})])
     if argv is None:
         return _j({"error": f"{dcc} cannot be driven headlessly in 0.1"})
-    p = subprocess.run(argv, capture_output=True, text=True, timeout=args.get("timeout", 1800),
-                       env={**os.environ, **A.SAFE_ENV})
+    p = core.run_child(argv, timeout=args.get("timeout", 1800), extra_env=A.SAFE_ENV)
     for line in (p.stdout or "").splitlines():
         if line.startswith("KLIIEG_GATE "):
             try:
@@ -367,8 +400,10 @@ def h_session(args: dict) -> str:
             return _j({"error": f"live bridge for {dcc} lands in a later adapter; Blender works today"})
         sid = os.urandom(4).hex()
         sock = os.path.join(core.data_dir(), f"live-{sid}.sock")
-        server = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                              "blender/klieg_headless_server.py")
+        server = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                              "blender", "klieg_headless_server.py")
+        if not os.path.isfile(server):
+            return _j({"error": f"bridge server script not found: {server}"})
         argv = [ad.find_binary(), "-b"]
         if args.get("blend"):
             argv.append(args["blend"])
@@ -393,6 +428,9 @@ def h_session(args: dict) -> str:
         socks = list(sessions)
         if len(socks) == 1:
             sock = socks[0]
+        elif not socks:
+            return _j({"error": "no live sessions; start one with action=start",
+                       "sessions": []})
         else:
             return _j({"error": "socket is required when more than one session exists",
                        "sockets": socks})
@@ -414,7 +452,12 @@ def h_session(args: dict) -> str:
             return _j({"socket": sock, **r})
         return _j({"error": f"unknown action {action}"})
     except bridge_mod.BridgeUnavailable as e:
+        # The socket is gone. Refresh the job so a dead Blender cannot stay "running".
+        entry = sessions.get(sock) or {}
+        job_id = entry.get("job")
+        state = core.poll(job_id) if job_id else None
         return _j({"error": "host not reachable", "detail": str(e),
+                   "job": job_id, "job_state": (state or {}).get("state"),
                    "hint": "the live session is not running; start one or use batch"})
     except bridge_mod.BridgeTimeout as e:
         return _j({"error": "host busy", "detail": str(e),
@@ -461,7 +504,15 @@ def h_colour(args: dict) -> str:
 
 # ------------------------------------------------------------------ taste
 def h_taste(args: dict) -> str:
+    """Taste verbs need numpy/Pillow; report a missing dep as data, never a trace."""
     action = args.get("action", "list")
+    pixel_actions = {"features", "record", "train", "score"}
+    if action in pixel_actions:
+        try:
+            taste_mod._deps()
+        except ImportError as e:
+            return _j({"error": f"optional dependency missing: {e}",
+                       "hint": "install numpy and Pillow to use klieg_taste pixel verbs"})
     if action == "features":
         path = args.get("frame")
         if not path or not os.path.exists(path):

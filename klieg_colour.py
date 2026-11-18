@@ -21,6 +21,11 @@ import json
 import os
 import subprocess
 
+try:  # loaded as a Hermes plugin package
+    from . import klieg_core as core
+except ImportError:  # loaded standalone (tests, scripts)
+    import klieg_core as core
+
 MANIFEST = "colour_manifest.json"
 
 PROBE = r"""
@@ -33,7 +38,7 @@ try:
 except Exception:
     ocio = ''
 manifest = {
-  "display_device": vs.display_device,
+  "display_device": getattr(sc.display_settings, "display_device", ""),
   "view_transform": vs.view_transform,
   "look": vs.look,
   "exposure": round(float(vs.exposure), 4),
@@ -80,9 +85,11 @@ def probe_batch(blender: str, blend: str, timeout: int = 120) -> dict:
     script = "/tmp/klieg_colour_probe.py"
     with open(script, "w") as f:
         f.write(PROBE)
-    p = subprocess.run([blender, "-b", blend, "-P", script],
-                       capture_output=True, text=True, timeout=timeout,
-                       env={**os.environ, "PATH": "/usr/bin:/bin"})
+    extra = {"PATH": "/usr/bin:/bin"}
+    if os.environ.get("OCIO"):
+        extra["OCIO"] = os.environ["OCIO"]
+    p = core.run_child([blender, "-b", blend, "-P", script],
+                       timeout=timeout, extra_env=extra)
     for line in (p.stdout or "").splitlines():
         if line.startswith("KLIIEG_COLOUR "):
             return json.loads(line.split(" ", 1)[1])
@@ -139,9 +146,8 @@ def compare(expected: dict, actual: dict) -> list[dict]:
 
 
 def ffprobe_tags(path: str) -> dict:
-    out = subprocess.run(["ffprobe", "-v", "error", "-print_format", "json",
-                          "-show_streams", "-show_format", path],
-                         capture_output=True, text=True)
+    out = core.run_child(["ffprobe", "-v", "error", "-print_format", "json",
+                          "-show_streams", "-show_format", path])
     try:
         data = json.loads(out.stdout)
     except json.JSONDecodeError:

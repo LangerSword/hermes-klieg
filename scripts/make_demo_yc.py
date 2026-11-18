@@ -27,6 +27,8 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from paths import resolve_input
 sys.path.insert(0, REPO)
 
 W, H, FPS = 1920, 1080, 30
@@ -45,7 +47,7 @@ STORY = os.path.join(REPO, "docs/media/storyboard.json")
 WORK = "/tmp/klieg-demo-yc"
 FRAMES = os.path.join(WORK, "frames")
 VO_DIR = os.path.join(WORK, "vo")
-FILM = os.path.expanduser("~/projects/omnitrix-strobe/renders/frames")
+FILM = resolve_input("film")
 
 MONO = "/usr/share/fonts/TTF/JetBrainsMonoNLNerdFontMono-Regular.ttf"
 TAG = "/usr/share/fonts/OTF/SpaceGrotesk-Regular.otf"
