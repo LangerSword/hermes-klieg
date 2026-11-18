@@ -10,6 +10,7 @@ Writes to /tmp/klieg-e2e/ and prints the verification and the encode path.
 
 import json
 import os
+import shutil
 import sys
 import time
 
@@ -31,9 +32,12 @@ def main() -> int:
         print("no blend at", BLEND)
         return 2
 
-    print("1. render 2 frames through klieg_render (25 %, 32 samples)")
+    print("1. render frames 1-2 through klieg_render (25 %, 32 samples)")
+    # Frames 1-2 (Blender's native 1-based range) exercise publish's
+    # -start_number path; a clean dir keeps old frames out of the encode.
+    shutil.rmtree(OUT, ignore_errors=True)
     res = json.loads(tools.h_render({
-        "dcc": "blender", "blend": BLEND, "frames": "0-1",
+        "dcc": "blender", "blend": BLEND, "frames": "1-2",
         "outdir": OUT, "samples": 32, "pct": 25, "name": "e2e",
     }))
     if "error" in res:

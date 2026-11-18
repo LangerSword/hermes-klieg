@@ -20,6 +20,13 @@ import klieg_bridge as B
 import klieg_colour as C
 import klieg_taste as T
 
+try:
+    import numpy  # noqa: F401
+    from PIL import Image  # noqa: F401
+    _HAVE_PIXEL = True
+except ImportError:
+    _HAVE_PIXEL = False
+
 
 # ------------------------------------------------------------------ fake host
 class FakeHost(threading.Thread):
@@ -147,6 +154,7 @@ class Colour(unittest.TestCase):
         self.assertIn("ocio_config_sha256", back)
 
 
+@unittest.skipUnless(_HAVE_PIXEL, "numpy/Pillow not installed")
 class Taste(unittest.TestCase):
     def _frame(self, kind="good"):
         """Synthetic frames that differ in the ways the features care about."""

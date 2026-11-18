@@ -8,20 +8,34 @@ before install, not after.
 
 | capability | how | boundary |
 |---|---|---|
-| execute Python inside a DCC | `klieg_run`, `klieg_track`, `klieg_gate` write/pass a script and launch the host | approval-gated per call |
+| execute Python inside a DCC | `klieg_run`, `klieg_track`, `klieg_gate script=…` write/pass a script and launch the host | approval-gated per call |
 | spawn long-running processes | `klieg_render`, `klieg_publish` via `subprocess.Popen(start_new_session=True)` | detached, logged, killable by job id |
 | write rendered frames and encodes | wherever `outdir` / `out` point | refused under system and credential paths |
+| write a colour manifest | `klieg_colour action=write` | approval-gated; same write refusals as publish |
+| hash files into a job ledger | `klieg_ledger action=seal` | approval-gated; writes only `ledger.json` inside the job's own directory |
+| measure frames | built-in `klieg_gate gate=…`, `klieg_taste`, `klieg_ledger check/show` | read-only; no code execution, no writes outside the plugin data dir |
 | read scene files | the DCC opens them | not parsed by Klieg |
 
 It has **no** network access, **no** credential store, and **no** telemetry.
 
 ## Approvals
 
-Five tools execute model-authored code or spend GPU time: `klieg_run`, `klieg_track`,
-`klieg_gate`, `klieg_render`, `klieg_publish` — plus `klieg_jobs action=kill`. Each raises a
-`pre_tool_call` approval with a `klieg:<tool>` rule key. `klieg_probe`, `klieg_scene`,
-`klieg_plan` and the read-only job actions pass without a prompt, because they cannot change
-anything. Unattended runs (cron) fail closed.
+Approval is per **action**, not per tool. These prompt with a `klieg:<tool>` rule key:
+
+- `klieg_run`, `klieg_track`, `klieg_render`, `klieg_publish` (execute code / spend GPU /
+  overwrite deliverables)
+- `klieg_gate script=…` (executes model-authored Python in a host)
+- `klieg_session start/eval/stop` (eval shows the code in the prompt)
+- `klieg_colour write`, `klieg_ledger seal`, `klieg_jobs kill/queue`
+
+These pass without a prompt because they cannot change anything outside the plugin's own
+data directory: `klieg_probe`, `klieg_scene`, `klieg_plan`, `klieg_taste` (verdicts are
+confined to `taste.jsonl`), built-in `klieg_gate gate=…` (reads frames, computes numbers),
+`klieg_session status/list/colour`, `klieg_colour probe/compare/tags`, `klieg_ledger
+check/show`, and the read-only job actions. `klieg_gate` rejects `gate` and `script`
+together, so the free path cannot be used to smuggle a script past the gate. Unattended
+runs (cron) fail closed. The policy is tested (`tests/test_hardening.py`,
+`tests/test_gates.py`, `tests/test_ledger.py`).
 
 ## The child environment is an allow-list, not a copy
 
@@ -48,14 +62,15 @@ silent. `test_agent_secrets_do_not_reach_children` asserts this.
   is the entire premise of `verify()`.
 - Every launch gets `start_new_session=True`, so `kill` can terminate the process group and
   a crashed host cannot leave an orphan holding the GPU lock.
-- The lock is a JSON file holding a pid; a dead pid is reaped on the next read.
+- The lock is a JSON file holding a pid; a dead pid is reaped on the next read, and so is a
+  lock whose holder job already reached a terminal state (pid reuse cannot wedge the host).
 
 ## Write refusals
 
-`klieg_publish` refuses to write under `/etc`, `/usr`, `/bin`, `/sbin`, `/boot`, `/dev`,
-`/proc`, `/sys`, `/lib`, `/opt`, `/var/lib`, and under `~/.ssh`, `~/.aws`, `~/.gnupg`,
-`~/.config/hermes`, `~/.hermes`. This is not a sandbox — it is a guard against a mistyped
-path being obeyed.
+`klieg_publish` and `klieg_colour action=write` refuse to write under `/etc`, `/usr`, `/bin`,
+`/sbin`, `/boot`, `/dev`, `/proc`, `/sys`, `/lib`, `/opt`, `/var/lib`, and under `~/.ssh`,
+`~/.aws`, `~/.gnupg`, `~/.config/hermes`, `~/.hermes`. Paths are expanded (`~`) and resolved
+before the check. This is not a sandbox — it is a guard against a mistyped path being obeyed.
 
 ## Logs
 
