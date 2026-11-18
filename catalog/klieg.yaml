@@ -1,9 +1,9 @@
 # Catalog entry draft for github.com/NousResearch/hermes-agent -> plugin-catalog/klieg.yaml
-# `sha` is the plugin-repo commit that contains the fixes (4a98389).
+# `sha` is the plugin-repo commit that contains the fixes (f1fa6f48da12f8063f1ad1d1c60133215fce4411).
 
 name: klieg
 repo: https://github.com/LangerSword/hermes-klieg
-sha: 4a98389
+sha: f1fa6f48da12f8063f1ad1d1c60133215fce4411
 version: "0.1.0"
 title: Klieg
 description: >-
