@@ -17,9 +17,11 @@ socket is worse than a batch job. The interface leaves room for it as
 from __future__ import annotations
 
 import glob
+import json
 import os
 import shutil
 import subprocess
+import uuid
 
 try:  # loaded as a Hermes plugin package
     from . import klieg_core as core
@@ -69,7 +71,9 @@ class Adapter:
         raise NotImplementedError
 
     def render_argv(self, frames: list[int], outdir: str, samples: int,
-                    pct: int, blend: str, tag: str = "") -> list[str]:
+                    pct: int, blend: str, tag: str = "", *, dry: bool = False) -> list[str]:
+        """argv for a frame-range render. dry=True resolves the argv without
+        writing the generated script (that is what klieg_plan needs)."""
         raise NotImplementedError
 
     def session(self) -> None:
@@ -101,26 +105,35 @@ class Blender(Adapter):
             argv += ["--", *args]
         return argv
 
-    def render_argv(self, frames, outdir, samples, pct, blend, tag=""):
-        # a generated script keeps the CLI surface tiny and the behaviour explicit
-        script = os.path.join(os.path.dirname(outdir), "_klieg_render.py")
-        os.makedirs(os.path.dirname(outdir), exist_ok=True)
-        with open(script, "w") as f:
-            f.write(RENDER_SCRIPT.format(
-                frames=",".join(str(f) for f in frames), outdir=outdir,
-                samples=samples, pct=pct))
+    def render_argv(self, frames, outdir, samples, pct, blend, tag="", *, dry=False):
+        # One unique script per render, confined to the plugin data dir. A fixed
+        # name next to outdir let two renders into sibling directories overwrite
+        # each other's script before the first Blender read it - the first job
+        # then rendered the second job's frames. json.dumps embedding keeps paths
+        # with quotes, spaces or backslashes from breaking (or rewriting) the
+        # generated Python.
+        script = os.path.join(core.data_dir(), "renders",
+                              f"_klieg_render_{uuid.uuid4().hex[:8]}.py")
+        if not dry:
+            os.makedirs(os.path.dirname(script), exist_ok=True)
+            with open(script, "w") as f:
+                f.write(RENDER_SCRIPT.format(
+                    frames_json=json.dumps([int(x) for x in frames]),
+                    outdir_json=json.dumps(str(outdir)),
+                    samples=int(samples), pct=int(pct)))
         return self.run_argv(script, blend=blend)
 
 
 RENDER_SCRIPT = '''\
 import bpy, os, json, sys, time
-FRAMES = [int(x) for x in "{frames}".split(",") if x]
-OUT = "{outdir}"
+FRAMES = {frames_json}
+OUT = {outdir_json}
 sc = bpy.context.scene
-sc.cycles.samples = {samples}
-sc.cycles.use_adaptive_sampling = True
-sc.cycles.adaptive_threshold = 0.03
-sc.cycles.use_denoising = True
+if hasattr(sc, "cycles"):
+    sc.cycles.samples = {samples}
+    sc.cycles.use_adaptive_sampling = True
+    sc.cycles.adaptive_threshold = 0.03
+    sc.cycles.use_denoising = True
 sc.render.resolution_percentage = {pct}
 sc.render.image_settings.file_format = "PNG"
 sc.render.image_settings.color_mode = "RGBA"

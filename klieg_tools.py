@@ -272,7 +272,7 @@ def h_plan(args: dict) -> str:
     argv = []
     if info.get("found") and outdir and frames:
         try:
-            argv = ad.render_argv(frames, outdir, samples, pct, blend or "<blend>")
+            argv = ad.render_argv(frames, outdir, samples, pct, blend or "<blend>", dry=True)
         except NotImplementedError:
             blockers.append(f"{dcc} renders are not supported by this adapter yet")
     if argv:
