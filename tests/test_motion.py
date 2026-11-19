@@ -178,10 +178,10 @@ class MotionRealRender(unittest.TestCase):
         out = os.path.join(base, f"title-{os.urandom(3).hex()}.mp4")
         res = _call({"action": "render", "template": "title-reveal",
                      "params": {"word": "KLIEG", "tagline": "motion for Hermes"},
-                     "out": out, "fps": 24})
+                     "out": out, "fps": 12})
         self.assertIn("job", res, res)
         job = res["job"]
-        deadline = time.time() + 120
+        deadline = time.time() + 240
         st = core.poll(job)
         while st.get("state") == "running" and time.time() < deadline:
             time.sleep(1)

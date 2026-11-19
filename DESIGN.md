@@ -2,10 +2,12 @@
 
 ## Thesis
 
-The hard part of driving a DCC from an agent is not generating the script. Models are good
-at that now. The hard part is **surviving the wall-clock**: a render is 20–70 minutes, the
-agent's shell is not, and every naive bridge loses the thing you needed — whether the work
-actually happened.
+Klieg's purpose is to let Hermes **make motion design** — kinetic type, transitions,
+lower-thirds, logo stings, loops, explainers — and to drive the DCC hosts that make
+pictures. The hard part of driving a DCC from an agent is not generating the script. Models
+are good at that now. The hard part is **surviving the wall-clock**: a render is 20–70
+minutes, the agent's shell is not, and every naive bridge loses the thing you needed —
+whether the work actually happened.
 
 So Klieg is not a Blender wrapper. It is three invariants with adapters dangling off them:
 
@@ -15,6 +17,28 @@ So Klieg is not a Blender wrapper. It is three invariants with adapters dangling
    the holder is gone.
 3. **Every host is a shell command.** Adapters produce argv; they never own a process
    lifecycle, a log format, or a retry policy.
+
+## Motion design is the core
+
+`klieg_motion` is the authoring surface: Hermes describes a scene and Klieg renders it to
+MP4/GIF locally, no API keys. The design choice is a **declarative spec compiled to
+HTML+GSAP**, not a bespoke animation runtime:
+
+- A scene is layers (text/box/image) with keyframed effects (fade/rise/slide/scale/pop/blur/
+  spin) and named easing. Text splits into chars/words for staggered kinetic type. The
+  compiler emits an HTML page exposing a GSAP timeline as `window.__tl`.
+- Rendering is **deterministic**: pause the timeline, seek to each frame's time, screenshot.
+  Every frame is fully painted, so motion is smooth with no screencast frame-drops — the
+  same reason the launch film is rendered frame-by-frame, not recorded live.
+- Templates (title-reveal, lower-third, kinetic-quote, logo-sting) give a weak model a
+  correct starting point; raw HTML+GSAP stays open for custom work.
+- The render runs as a detached job through the same engine as Blender renders, so it
+  inherits the artefact-verify guarantee: a motion job is "done" only when the MP4 exists
+  and is newer than the job start.
+
+GSAP + a headless browser is a deliberate trade: premium motion quality and a vocabulary a
+model can compose, at the cost of a playwright/chromium dependency (reported as data when
+absent). The compiler and templates are stdlib-only and work without it.
 
 ## Adapter protocol
 
@@ -93,10 +117,12 @@ numbered PNG sequence with numpy/Pillow, no DCC. Remaining from the original lis
 continuity at act boundaries and compression-survival (re-encode at platform bitrate,
 measure retained edge energy).
 
-**0.2.0 (this repo)** — all of the above plus the limits fixes: queue reachable from the
-tool, publish handles mid-sequence and gapped frame sets, structured input errors
-everywhere, unique confined render scripts, held-out taste accuracy, per-action approval.
-Validates and registers 13 tools + 1 hook.
+**0.3.0 (this repo) — motion design is the core.** `klieg_motion` authors scenes
+(declarative spec / templates / raw HTML+GSAP) and renders them to MP4/GIF as detached,
+verified jobs. Plus the limits fixes: queue reachable from the tool, publish handles
+mid-sequence and gapped frame sets, structured input errors everywhere, unique confined
+render scripts, held-out taste accuracy, per-action approval. Validates and registers
+14 tools + 1 hook.
 
 ## Publication
 

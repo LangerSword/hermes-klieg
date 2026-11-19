@@ -9,7 +9,8 @@ before install, not after.
 | capability | how | boundary |
 |---|---|---|
 | execute Python inside a DCC | `klieg_run`, `klieg_track`, `klieg_gate script=…` write/pass a script and launch the host | approval-gated per call |
-| spawn long-running processes | `klieg_render`, `klieg_publish` via `subprocess.Popen(start_new_session=True)` | detached, logged, killable by job id |
+| render 2D motion design | `klieg_motion render/preview` compiles a scene to HTML+GSAP and renders it via playwright/chromium + ffmpeg | approval-gated; output refused under system and credential paths |
+| spawn long-running processes | `klieg_render`, `klieg_publish`, `klieg_motion render` via `subprocess.Popen(start_new_session=True)` | detached, logged, killable by job id |
 | write rendered frames and encodes | wherever `outdir` / `out` point | refused under system and credential paths |
 | write a colour manifest | `klieg_colour action=write` | approval-gated; same write refusals as publish |
 | hash files into a job ledger | `klieg_ledger action=seal` | approval-gated; writes only `ledger.json` inside the job's own directory |
@@ -25,6 +26,7 @@ Approval is per **action**, not per tool. These prompt with a `klieg:<tool>` rul
 - `klieg_run`, `klieg_track`, `klieg_render`, `klieg_publish` (execute code / spend GPU /
   overwrite deliverables)
 - `klieg_gate script=…` (executes model-authored Python in a host)
+- `klieg_motion render/preview` (executes model-authored HTML+JS in a headless browser, spawns chromium/ffmpeg)
 - `klieg_session start/eval/stop` (eval shows the code in the prompt)
 - `klieg_colour write`, `klieg_ledger seal`, `klieg_jobs kill/queue`
 
@@ -32,7 +34,7 @@ These pass without a prompt because they cannot change anything outside the plug
 data directory: `klieg_probe`, `klieg_scene`, `klieg_plan`, `klieg_taste` (verdicts are
 confined to `taste.jsonl`), built-in `klieg_gate gate=…` (reads frames, computes numbers),
 `klieg_session status/list/colour`, `klieg_colour probe/compare/tags`, `klieg_ledger
-check/show`, and the read-only job actions. `klieg_gate` rejects `gate` and `script`
+check/show`, `klieg_motion templates`, and the read-only job actions. `klieg_gate` rejects `gate` and `script`
 together, so the free path cannot be used to smuggle a script past the gate. Unattended
 runs (cron) fail closed. The policy is tested (`tests/test_hardening.py`,
 `tests/test_gates.py`, `tests/test_ledger.py`).
@@ -67,7 +69,8 @@ silent. `test_agent_secrets_do_not_reach_children` asserts this.
 
 ## Write refusals
 
-`klieg_publish` and `klieg_colour action=write` refuse to write under `/etc`, `/usr`, `/bin`,
+`klieg_publish`, `klieg_colour action=write`, and `klieg_motion render/preview` refuse to
+write under `/etc`, `/usr`, `/bin`,
 `/sbin`, `/boot`, `/dev`, `/proc`, `/sys`, `/lib`, `/opt`, `/var/lib`, and under `~/.ssh`,
 `~/.aws`, `~/.gnupg`, `~/.config/hermes`, `~/.hermes`. Paths are expanded (`~`) and resolved
 before the check. This is not a sandbox — it is a guard against a mistyped path being obeyed.
@@ -101,6 +104,9 @@ A bridge is a privileged surface, so its shape matters more than its features.
 
 - **A script you approve is arbitrary code.** `klieg_run` executes Python inside a host that
   has your file permissions. Approving a call is approving that code. Read the script.
+- **A motion scene you approve is arbitrary code.** `klieg_motion` renders model-authored
+  HTML+JavaScript in a headless browser with your file permissions. Approving a render is
+  approving that code.
 - **A malicious scene file can execute on open.** That is the DCC's behaviour, not Klieg's;
   `klieg_render` will open whatever blend you point it at.
 - **No sandbox, no container, no privilege drop.** Klieg runs as you, with your `HOME` and

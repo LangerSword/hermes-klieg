@@ -1,9 +1,10 @@
-"""Klieg: a DCC bridge for Hermes.
+"""Klieg: motion design for Hermes.
 
-One adapter interface over the tools that make pictures. The plugin's job is not
-to know Blender - it is to make long GPU work survivable: detached jobs with
-logfiles and exit codes, artefact mtime guards, and measurements instead of
-claims.
+Author motion (kinetic type, transitions, lower-thirds, logo stings, loops) and
+render it to MP4/GIF locally; the same detached job engine drives Blender and
+other DCC hosts. The plugin's job is to make long creative work survivable:
+detached jobs with logfiles and exit codes, artefact mtime guards, provenance
+seals, and measurements instead of claims.
 
 Wiring uses the public plugin API: ctx.register_tool / ctx.register_hook.
 """
@@ -14,7 +15,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 TOOLSET = "klieg"
 

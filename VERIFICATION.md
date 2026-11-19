@@ -23,25 +23,27 @@ Command, from the repository root:
 python3 -W error::ResourceWarning -m unittest discover -s tests
 ```
 
-With the declared dependencies installed (`numpy>=1.26,<3`, `Pillow>=10`; CI installs them
-in `.github/workflows/tests.yml`):
+With the declared dependencies installed (`numpy>=1.26,<3`, `Pillow>=10`, plus
+`playwright` + a chromium headless shell for the motion render test; CI installs the
+first two in `.github/workflows/tests.yml`):
 
 ```
-Ran 138 tests in 21.544s
+Ran 158 tests in 44.976s
 
 OK (skipped=1)
 ```
 
-On the bare system interpreter, without numpy/Pillow:
+On the bare system interpreter, without numpy/Pillow/playwright:
 
 ```
-Ran 138 tests in 19.649s
+Ran 158 tests in 21.054s
 
-OK (skipped=25)
+OK (skipped=26)
 ```
 
-The one skip in the full run is the PyYAML packaging check (PyYAML not installed); the 25
-bare-run skips are the pixel-dependent tests, which skip cleanly instead of erroring. The
+The one skip in the full run is the PyYAML packaging check (PyYAML not installed); the 26
+bare-run skips are the pixel-dependent tests and the live motion render, which skip cleanly
+instead of erroring. The
 suite is hermetic: it sets `HERMES_PLUGIN_DATA` to a fresh temp dir, so a previous run's
 history cannot change an assertion. Blender is not required: tests that need a DCC stub its
 adapter. Coverage by guarantee:
@@ -108,6 +110,9 @@ adapter. Coverage by guarantee:
 | stats gate sees exposure drift and stability | `test_stats_detects_exposure_drift`, `test_stats_constant_exposure_is_stable` |
 | safe_band finds detail parked in a UI margin | `test_safe_band_finds_detail_in_the_top_margin` |
 | built-in gates are approval-free; script gates prompt | `test_builtin_gates_are_approval_free_script_gates_prompt` |
+| **motion compiler emits a timeline + hook, splits kinetic type** | `CompileScene` (7), `Templates` (5) |
+| motion render/preview gate, templates free; bad input is data | `MotionHandler` (7) |
+| **a motion template renders to a verified MP4 through the tool** | `test_template_renders_to_verified_mp4` (real playwright + ffmpeg) |
 
 ## Plugin admission
 
@@ -126,7 +131,7 @@ Validation passed.
 
 $ hermes plugins doctor .
 OK: runtime discovery, manifest parsing, import, and registration passed
-registrations: 13 tool(s), 1 hook(s)
+registrations: 14 tool(s), 1 hook(s)
 ```
 
 The cautions are deliberate and documented, not suppressed: the `*_dir_access` hits are the
@@ -143,8 +148,8 @@ runs in CI on every OS/Python cell.
 
 ```
 $ python3 smoke_load.py
-version: 0.2.0
-registered tools: 13 [...]
+version: 0.3.0
+registered tools: 14 [...]
 registered hooks: ['pre_tool_call']
 hook klieg_render   {...frames 0-1...}      -> approve
 hook klieg_probe    {}                      -> None
@@ -154,7 +159,10 @@ hook klieg_session  {action: status}        -> None
 hook klieg_session  {action: eval, ...}     -> approve
 hook klieg_ledger   {action: check, ...}    -> None
 hook klieg_ledger   {action: seal, ...}     -> approve
+hook klieg_motion   {action: templates}     -> None
+hook klieg_motion   {action: render, ...}   -> approve
 klieg_ledger check(no-such-job) -> {"ok": false, "error": "...no ledger; seal it first"}
+klieg_motion templates -> ['title-reveal', 'lower-third', 'kinetic-quote', 'logo-sting']
 
 LOAD SMOKE OK
 ```
@@ -245,6 +253,31 @@ One observed fact worth recording: Pillow 13 loads Blender's 16-bit RGBA PNGs as
 frames; 16-bit **grayscale** (`I;16`) is scaled explicitly, because Pillow's
 `convert("RGB")` clips it at 255 instead of scaling.
 
+## Motion design, through the tool
+
+`klieg_motion` was exercised end-to-end through the same CLI shim the tools use: a
+title-reveal template compiled to HTML+GSAP and rendered frame-by-frame to MP4 as a
+detached job, then verified.
+
+```
+$ klieg_cli.py motion preview --template title-reveal \
+      --params '{"word":"KLIEG","tagline":"motion design for Hermes"}' --t 3
+{ "preview": ".../motion/preview-7fe235fb.png", "t": 3.0, "width": 1920, "height": 1080 }
+
+$ klieg_cli.py motion render --template title-reveal --params '{...}' \
+      --out ~/.cache/klieg-motion/title.mp4 --format mp4
+{ "job": "motion-40a45eaa", "state": "running" }
+
+$ klieg_cli.py jobs verify --job motion-40a45eaa
+{ "ok": true, "artefacts": [title.mp4], "stale": [], "missing": [] }
+
+$ ffprobe title.mp4   ->  h264 1920x1080, duration 6.000000
+```
+
+The preview frame was visually inspected: KLIEG fully revealed in bold cream type, orange
+rule, correct tagline, dark cinematic field, no serif fallback or overflow. The render is
+deterministic (seek + screenshot per frame), so there are no screencast frame-drops.
+
 ## Not verified — stated plainly
 
 - **A full film was not rendered by this suite.** `klieg_render` launched a real 2-frame pass
@@ -272,5 +305,11 @@ frames; 16-bit **grayscale** (`I;16`) is scaled explicitly, because Pillow's
   certified Harding test on known flashing content.
 - **The ledger is not a signature.** It detects drift between seal and check; it does not
   authenticate who produced the files.
+- **Only the title-reveal template was rendered end-to-end.** The other templates
+  (lower-third, kinetic-quote, logo-sting) and the declarative spec compiler are unit-tested
+  (they compile to valid HTML+GSAP), but only title-reveal was driven through a full render
+  here. The GIF output path is implemented but was not rendered live in this record.
+- **Motion rendering needs playwright + a chromium headless shell.** Without them,
+  render/preview report the missing dependency as data; the compiler and templates still work.
 
 If a claim is not in the sections above, treat it as unproven.
