@@ -210,6 +210,17 @@ class WriteBoundary(unittest.TestCase):
         os.symlink(os.path.expanduser("~/.ssh"), link)
         self.assertIsNotNone(tools._write_allowed(link), "realpath must defeat a symlink alias")
 
+    def test_symlinked_forbidden_prefix_is_still_refused(self):
+        # macOS: /etc is a symlink to /private/etc. The candidate resolves to the
+        # target, so the deny-list prefix must be resolved too, or the rule misses.
+        target = tempfile.mkdtemp(prefix="klieg-wb-real-", dir=self.tmp)
+        prefix = os.path.join(self.tmp, "etc-link")
+        os.symlink(target, prefix)
+        with mock.patch.object(tools, "FORBIDDEN_WRITE", (prefix,)):
+            reason = tools._write_allowed(os.path.join(prefix, "klieg.mp4"))
+        self.assertIsNotNone(reason, "a symlinked deny-list prefix must still refuse")
+        self.assertIn("refusing", reason or "")
+
     def test_render_refuses_forbidden_outdir(self):
         with mock.patch.object(tools.A, "get") as g, \
              mock.patch.object(core, "launch") as launch:

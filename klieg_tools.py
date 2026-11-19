@@ -478,7 +478,11 @@ def _write_allowed(path: str) -> str | None:
     """
     ap = os.path.realpath(os.path.expanduser(str(path)))
     for bad in FORBIDDEN_WRITE:
-        if ap == bad or ap.startswith(bad + os.sep):
+        # Resolve the prefix as well as the candidate: on macOS /etc is a symlink to
+        # /private/etc, so a literal /etc/... destination resolves to /private/etc/...
+        # and must still match the rule. Comparing only the literal prefix let it slip.
+        b = os.path.realpath(bad)
+        if ap == b or ap.startswith(b + os.sep):
             return f"refusing to write under {bad}"
     for bad in FORBIDDEN_HOME:
         b = os.path.realpath(os.path.expanduser(bad))
