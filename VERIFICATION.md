@@ -28,7 +28,7 @@ With the declared dependencies installed (`numpy>=1.26,<3`, `Pillow>=10`, plus
 first two in `.github/workflows/tests.yml`):
 
 ```
-Ran 158 tests in 44.976s
+Ran 159 tests in 35.880s
 
 OK (skipped=1)
 ```
@@ -36,7 +36,7 @@ OK (skipped=1)
 On the bare system interpreter, without numpy/Pillow/playwright:
 
 ```
-Ran 158 tests in 21.054s
+Ran 159 tests in 19.640s
 
 OK (skipped=26)
 ```
@@ -55,6 +55,7 @@ adapter. Coverage by guarantee:
 | a missing artefact is not success | `test_missing_artefact_is_not_success` |
 | **a partial render does not verify** | `test_partial_output_does_not_verify` |
 | a failing job keeps its exit code | `test_failure_keeps_exit_code` |
+| **concurrent status writes do not collide on the tmp file** | `test_concurrent_writes_do_not_collide` |
 | kill marks the job and releases the GPU lock | `test_kill_marks_job_and_releases_lock` |
 | an unknown job id is reported, never raised | `test_unknown_job_is_reported_not_raised` |
 | the GPU lock excludes and cannot be stolen | `test_second_holder_refused` |

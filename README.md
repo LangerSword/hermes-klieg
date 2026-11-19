@@ -129,8 +129,8 @@ breaks that lookup. Run Blender with `PATH=/usr/bin:/bin`.
 
 | check | command | result |
 |---|---|---|
-| tests (deps installed) | `python3 -W error::ResourceWarning -m unittest discover -s tests` | 158 tests, OK (1 skip) |
-| tests (bare stdlib) | same, without numpy/Pillow/playwright | 158 tests, OK (26 skips) |
+| tests (deps installed) | `python3 -W error::ResourceWarning -m unittest discover -s tests` | 159 tests, OK (1 skip) |
+| tests (bare stdlib) | same, without numpy/Pillow/playwright | 159 tests, OK (26 skips) |
 | motion, live | `klieg_cli.py motion render --template title-reveal …` | title-reveal rendered to a verified 1080p MP4 |
 | live bridge | `python3 scripts/test_bridge.py` | 10 of 10 checks on Blender 5.3.0; supports 4.2+ |
 | end to end | `python3 scripts/e2e.py` | frames 1-2 rendered, verified, encoded, 5,573 bytes |
@@ -195,7 +195,7 @@ klieg_gates.py        flash, loop, stats, safe_band
 klieg_motion.py       motion compiler + templates (the authoring core)
 blender/              headless server and GUI add-on
 scripts/              cli, motion_render, e2e, bridge test, explainer, qa
-tests/                158 cases, hermetic
+tests/                159 cases, hermetic
 ```
 
 MIT. The whiteboard, the demo, and the sample frames in this repository come from the

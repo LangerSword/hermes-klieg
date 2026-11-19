@@ -75,7 +75,11 @@ def _write_status(job_id: str, **kw) -> None:
     p = _status_path(job_id)
     cur = read_status(job_id)
     cur.update(kw)
-    tmp = p + ".tmp"
+    # Unique tmp per writer: the watcher thread and a poll can finalize the same
+    # job concurrently. A shared ".tmp" name lets one os.replace move the file out
+    # from under the other (FileNotFoundError on CI). pid+tid keeps each replace
+    # atomic and independent.
+    tmp = f"{p}.{os.getpid()}.{threading.get_ident()}.tmp"
     with open(tmp, "w") as f:
         json.dump(cur, f, indent=1)
     os.replace(tmp, p)
