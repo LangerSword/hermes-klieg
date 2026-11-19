@@ -29,15 +29,28 @@ def valid_job_id(job: str) -> bool:
     return bool(JOB_ID_RE.fullmatch(job))
 
 
-def data_dir() -> str:
-    """Per-profile data dir. HERMES_PLUGIN_DATA overrides; else derive from HERMES_HOME.
+def _hermes_home() -> str:
+    """Profile-aware Hermes home.
 
-    Using ~/.hermes directly made every profile share jobs. HERMES_HOME is the active
-    profile root, so jobs stay isolated.
+    Inside the host, hermes_constants.get_hermes_home() is the source of truth
+    (context-local profile override, env, platform default). Standalone (tests,
+    scripts) it is not importable, so fall back to the env the host sets.
+    """
+    try:
+        from hermes_constants import get_hermes_home
+        return str(get_hermes_home())
+    except Exception:
+        return os.environ.get("HERMES_HOME") or os.path.expanduser("~/.hermes")
+
+
+def data_dir() -> str:
+    """Per-profile data dir. HERMES_PLUGIN_DATA overrides; else derive from the Hermes home.
+
+    Using ~/.hermes directly made every profile share jobs. The Hermes home is the
+    active profile root, so jobs stay isolated.
     """
     base = (os.environ.get("HERMES_PLUGIN_DATA")
-            or os.path.join(os.environ.get("HERMES_HOME") or os.path.expanduser("~/.hermes"),
-                            "plugin-data"))
+            or os.path.join(_hermes_home(), "plugin-data"))
     p = os.path.join(base, PLUGIN)
     os.makedirs(p, exist_ok=True)
     return p

@@ -21,13 +21,16 @@ It has **no** network access, **no** credential store, and **no** telemetry.
 
 ## Approvals
 
-Approval is per **action**, not per tool. These prompt with a `klieg:<tool>` rule key:
+Approval is per **action**, not per tool. Every prompt that writes names the **resolved
+output path** (the same resolver the handler uses), so a user approves the exact destination
+the tool will write. These prompt with a `klieg:<tool>` rule key:
 
 - `klieg_run`, `klieg_track`, `klieg_render`, `klieg_publish` (execute code / spend GPU /
   overwrite deliverables)
 - `klieg_gate script=…` (executes model-authored Python in a host)
 - `klieg_motion render/preview` (executes model-authored HTML+JS in a headless browser, spawns chromium/ffmpeg)
-- `klieg_session start/eval/stop` (eval shows the code in the prompt)
+- `klieg_session start/eval/stop` (eval shows the FULL code and expr in the prompt, never a
+  truncated prefix)
 - `klieg_colour write`, `klieg_ledger seal`, `klieg_jobs kill/queue`
 
 These pass without a prompt because they cannot change anything outside the plugin's own
@@ -69,11 +72,17 @@ silent. `test_agent_secrets_do_not_reach_children` asserts this.
 
 ## Write refusals
 
-`klieg_publish`, `klieg_colour action=write`, and `klieg_motion render/preview` refuse to
-write under `/etc`, `/usr`, `/bin`,
-`/sbin`, `/boot`, `/dev`, `/proc`, `/sys`, `/lib`, `/opt`, `/var/lib`, and under `~/.ssh`,
-`~/.aws`, `~/.gnupg`, `~/.config/hermes`, `~/.hermes`. Paths are expanded (`~`) and resolved
-before the check. This is not a sandbox — it is a guard against a mistyped path being obeyed.
+`klieg_render`, `klieg_publish`, `klieg_colour action=write`, and `klieg_motion
+render/preview` refuse to write under `/etc`, `/usr`, `/bin`, `/sbin`, `/boot`, `/dev`,
+`/proc`, `/sys`, `/lib`, `/opt`, `/var/lib`, and under `~/.ssh`, `~/.aws`, `~/.gnupg`,
+`~/.kube`, `~/.docker`, `~/.azure`, `~/.config/gh`, `~/.config/gcloud`, `~/.config/hermes`,
+`~/.hermes`, `~/.config/autostart`, `~/.local/bin`. Single-file credential stores and login
+shell rc files are refused too: `~/.netrc`, `~/_netrc`, `~/.pgpass`, `~/.npmrc`, `~/.pypirc`,
+`~/.git-credentials`, `~/.bashrc`, `~/.zshrc`, `~/.profile`, `~/.bash_profile`, `~/.zprofile`.
+The home inventory mirrors hermes-agent's `agent/file_safety.py`. Paths are expanded (`~`)
+and resolved with `realpath` before the check, so a symlink with an innocuous name cannot
+alias a credential store. This is not a sandbox — it is a guard against a mistyped path
+being obeyed.
 
 ## Logs
 
@@ -108,7 +117,9 @@ A bridge is a privileged surface, so its shape matters more than its features.
   HTML+JavaScript in a headless browser with your file permissions. Approving a render is
   approving that code.
 - **A malicious scene file can execute on open.** That is the DCC's behaviour, not Klieg's;
-  `klieg_render` will open whatever blend you point it at.
+  `klieg_render` will open whatever blend you point it at. The unapproved `klieg_colour probe`
+  opens a blend with `--factory-startup`, so it does not auto-run embedded scripts even when
+  Blender's "Auto Run Python Scripts" preference is on.
 - **No sandbox, no container, no privilege drop.** Klieg runs as you, with your `HOME` and
   your filesystem. Use a disposable machine or a scratch user for untrusted scenes. This
   matches the official `blender` plugin's own warning about its MCP bridge.

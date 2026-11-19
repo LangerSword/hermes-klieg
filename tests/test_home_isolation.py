@@ -6,7 +6,9 @@
 import os
 import sys
 import tempfile
+import types
 import unittest
+from unittest import mock
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
@@ -40,6 +42,38 @@ class HomeIsolation(unittest.TestCase):
                 os.environ.pop("HERMES_HOME", None)
             else:
                 os.environ["HERMES_HOME"] = old_home
+
+    def test_hermes_constants_home_is_used_when_available(self):
+        # Review round 2: inside Hermes the profile-aware get_hermes_home()
+        # is the source of truth, not a raw HERMES_HOME env read.
+        home = tempfile.mkdtemp(prefix="klieg-const-home-")
+        fake = types.ModuleType("hermes_constants")
+        setattr(fake, "get_hermes_home", lambda: __import__("pathlib").Path(home))
+        old_data = os.environ.pop("HERMES_PLUGIN_DATA", None)
+        try:
+            with mock.patch.dict(sys.modules, {"hermes_constants": fake}):
+                d = core.data_dir()
+            self.assertTrue(d.startswith(home), d)
+        finally:
+            if old_data is not None:
+                os.environ["HERMES_PLUGIN_DATA"] = old_data
+
+    def test_plugin_data_override_beats_hermes_constants(self):
+        home = tempfile.mkdtemp(prefix="klieg-const-home2-")
+        override = tempfile.mkdtemp(prefix="klieg-const-override-")
+        fake = types.ModuleType("hermes_constants")
+        setattr(fake, "get_hermes_home", lambda: __import__("pathlib").Path(home))
+        old_data = os.environ.get("HERMES_PLUGIN_DATA")
+        try:
+            os.environ["HERMES_PLUGIN_DATA"] = override
+            with mock.patch.dict(sys.modules, {"hermes_constants": fake}):
+                d = core.data_dir()
+            self.assertTrue(d.startswith(override), d)
+        finally:
+            if old_data is None:
+                os.environ.pop("HERMES_PLUGIN_DATA", None)
+            else:
+                os.environ["HERMES_PLUGIN_DATA"] = old_data
 
     def test_explicit_plugin_data_overrides_home(self):
         d = tempfile.mkdtemp(prefix="klieg-explicit-")

@@ -29,7 +29,11 @@ class Packaging(unittest.TestCase):
             m = yaml.safe_load(f)
         deps = [str(d).lower() for d in (m.get("python_dependencies") or [])]
         self.assertTrue(any(d.startswith("numpy") for d in deps), deps)
-        self.assertTrue(any(d.startswith("pillow") or d.startswith("pil") for d in deps), deps)
+        pillow = next((d for d in deps if d.startswith("pillow") or d.startswith("pil")), None)
+        assert pillow is not None, deps
+        # Review round 2: an unbounded Pillow lets a future major break the
+        # gates silently; the declared range must carry an upper bound.
+        self.assertIn("<", pillow, "Pillow must carry an upper bound")
 
 
 if __name__ == "__main__":

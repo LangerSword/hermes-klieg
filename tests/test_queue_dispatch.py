@@ -53,7 +53,11 @@ def drain(job, timeout=5):
 
 class HandlerQueue(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="klieg-q-")
+        # Outside every forbidden write root: TMPDIR may point inside ~/.hermes,
+        # which h_render's write boundary (correctly) refuses.
+        base = os.path.join(os.path.expanduser("~"), ".cache", "klieg-tests")
+        os.makedirs(base, exist_ok=True)
+        self.tmp = tempfile.mkdtemp(prefix="klieg-q-", dir=base)
         self.blend = os.path.join(self.tmp, "s.blend")
         with open(self.blend, "w") as f:
             f.write("x")

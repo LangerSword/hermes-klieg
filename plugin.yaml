@@ -1,7 +1,7 @@
 name: klieg
 label: Klieg
 kind: standalone
-version: 0.3.0
+version: 0.3.1
 author: Lakshaya Sharma (LangerSword)
 homepage: https://github.com/LangerSword/hermes-klieg
 description: >
@@ -18,7 +18,7 @@ description: >
 requires_hermes: ">=0.22.0"
 python_dependencies:
   - "numpy>=1.26,<3"
-  - "Pillow>=10"
+  - "Pillow>=10,<12"
 provides_hooks:
   - pre_tool_call
 provides_tools:

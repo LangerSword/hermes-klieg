@@ -5,11 +5,20 @@ time, or overwrite deliverables go to the human gate. Read-only actions of a
 mixed tool do not: klieg_session status/list/colour and klieg_colour
 probe/compare/tags inspect; start/eval/stop and write mutate. Unattended runs
 fail closed.
+
+A prompt must show everything the approval authorizes: the FULL eval code and
+expr (a truncated prefix can hide the rest), and the resolved destination of
+every write, via the same resolvers the handlers use.
 """
 
 from __future__ import annotations
 
 import json
+
+try:  # loaded as a Hermes plugin package
+    from . import klieg_tools as tools
+except ImportError:  # loaded standalone (tests, scripts)
+    import klieg_tools as tools
 
 EXECUTING = frozenset({"klieg_run", "klieg_track", "klieg_gate", "klieg_render", "klieg_publish"})
 READ_ONLY = frozenset({"klieg_probe", "klieg_scene", "klieg_plan", "klieg_taste"})
@@ -21,19 +30,31 @@ MOTION_SAFE = frozenset({"templates"})
 
 
 def _detail(tool_name: str, args: dict) -> str:
-    if tool_name in {"klieg_run", "klieg_track", "klieg_gate"}:
+    if tool_name in {"klieg_run", "klieg_gate"}:
         return f"{args.get('dcc', 'blender')} <- {args.get('script', '')}"
+    if tool_name == "klieg_track":
+        out = args.get("out")
+        dest = f" -> {tools.resolve_write_path(out)}" if out else ""
+        return f"{args.get('dcc', 'blender')} <- {args.get('script', '')}{dest}"
     if tool_name == "klieg_render":
+        outdir = args.get("outdir")
+        dest = tools.resolve_write_path(outdir) if outdir else "?"
         return (f"{args.get('dcc', 'blender')} frames {args.get('frames', '?')} "
-                f"-> {args.get('outdir', '?')}")
+                f"-> {dest}")
     if tool_name == "klieg_publish":
         return f"{args.get('frames_dir', '?')} -> {args.get('out', '?')}"
     if tool_name == "klieg_session":
         action = args.get("action", "?")
         target = args.get("socket") or args.get("blend") or ""
         if action == "eval":
-            code = str(args.get("code", ""))[:160]
-            return f"eval on {target or 'the live session'}: {code}"
+            # Full code and expr, never a prefix: the user must see everything
+            # that will run before approving it.
+            code = str(args.get("code", ""))
+            expr = str(args.get("expr", ""))
+            msg = f"eval on {target or 'the live session'}: {code}"
+            if expr:
+                msg += f"\nexpr: {expr}"
+            return msg
         return f"{action} {target}".strip()
     if tool_name == "klieg_colour":
         return f"write manifest into {args.get('into') or 'the blend directory'}"
@@ -71,7 +92,8 @@ def pre_tool_call(tool_name: str, args: dict | None = None, **_kwargs):
         if str(args.get("action") or "templates").lower() in MOTION_SAFE:
             return None
         return {"action": "approve",
-                "message": f"klieg_motion: {args.get('action')} {args.get('template') or args.get('out') or 'scene'}",
+                "message": f"klieg_motion: {args.get('action')} {args.get('template') or 'scene'} "
+                           f"-> {tools.resolve_motion_out(args)}",
                 "rule_key": "klieg:klieg_motion"}
     if tool_name == "klieg_gate":
         # Built-in gates only read frames and compute numbers: no model-authored

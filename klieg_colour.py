@@ -92,7 +92,10 @@ def probe_batch(blender: str, blend: str, timeout: int = 120) -> dict:
     if os.environ.get("OCIO"):
         extra["OCIO"] = os.environ["OCIO"]
     try:
-        p = core.run_child([blender, "-b", blend, "-P", script],
+        # --factory-startup: the probe is not approval-gated, so it must not
+        # inherit a user's "Auto Run Python Scripts" preference and execute
+        # the blend's embedded scripts. Same flag the adapters already use.
+        p = core.run_child([blender, "-b", "--factory-startup", blend, "-P", script],
                            timeout=timeout, extra_env=extra)
     finally:
         try:

@@ -32,7 +32,11 @@ def call(handler, args):
 
 class StructuredErrors(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="klieg-v-")
+        # Outside every forbidden write root: TMPDIR may point inside ~/.hermes,
+        # which h_render's write boundary (correctly) refuses.
+        base = os.path.join(os.path.expanduser("~"), ".cache", "klieg-tests")
+        os.makedirs(base, exist_ok=True)
+        self.tmp = tempfile.mkdtemp(prefix="klieg-v-", dir=base)
         self.blend = os.path.join(self.tmp, "s.blend")
         with open(self.blend, "w") as f:
             f.write("x")

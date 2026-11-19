@@ -88,6 +88,16 @@ def _timeout_result(seconds) -> dict:
                     "or raise timeout, and check the job log"}
 
 
+def resolve_write_path(path) -> str:
+    """Absolute, ~-expanded form of a write destination.
+
+    The approval hook and the handlers share this one resolver so the prompt
+    names exactly the path the tool will write - a raw or relative string in
+    the prompt is how a user approves one destination and gets another.
+    """
+    return os.path.abspath(os.path.expanduser(str(path)))
+
+
 _FRAME_PART = re.compile(r"^\d+$")
 _FRAME_RANGE = re.compile(r"^(\d+)-(\d+)$")
 MAX_FRAMES = 100_000  # a weak model typing 0-999999999 must not allocate a billion ints
@@ -204,7 +214,10 @@ def h_render(args: dict) -> str:
     # No early refusal here: the queue decision belongs to core.launch, which
     # parks the job behind the holder (queue=True) or refuses it (queue=False).
     # Refusing here made the engine's queue unreachable from the tool.
-    outdir = os.path.abspath(args["outdir"])
+    outdir = resolve_write_path(args["outdir"])
+    refusal = _write_allowed(outdir)
+    if refusal:
+        return _j({"error": refusal, "outdir": outdir})
     try:
         argv = ad.render_argv(frames, outdir, samples, pct, blend, args.get("tag", ""))
     except NotImplementedError:
@@ -378,12 +391,12 @@ def h_track(args: dict) -> str:
     if blend and not os.path.exists(blend):
         return _j({"error": f"blend does not exist: {blend}"})
     argv = ad.run_argv(args["script"], blend=blend,
-                       args=[args["out"]] if args.get("out") else None)
+                       args=[resolve_write_path(args["out"])] if args.get("out") else None)
     if argv is None:
         return _j({"error": f"{dcc} cannot be driven headlessly in 0.1"})
     timeout = _int_arg(args, "timeout", 1800, lo=1)
     p = core.run_child(argv, timeout=timeout, extra_env=A.SAFE_ENV)
-    out = args.get("out")
+    out = resolve_write_path(args["out"]) if args.get("out") else None
     res = {"exit": p.returncode,
            "stdout_tail": "\n".join((p.stdout or "").splitlines()[-20:])}
     if out and os.path.exists(out):
@@ -444,7 +457,15 @@ FORBIDDEN_WRITE = ("/etc", "/usr", "/bin", "/sbin", "/boot", "/dev", "/proc", "/
                    "/lib", "/opt", "/var/lib")
 # A deny-list, not a read: these are paths Klieg refuses to write into. Listed here so a
 # reviewer can see the boundary, and so the refusal message can name the rule.
-FORBIDDEN_HOME = ("~/.ssh", "~/.aws", "~/.gnupg", "~/.config/hermes", "~/.hermes")
+# The home inventory mirrors hermes-agent's agent/file_safety.py (HOME_CREDENTIAL_DIRS,
+# HOME_CREDENTIAL_FILES, SHELL_RC_FILES) plus autostart and ~/.local/bin: a deliverable
+# written into any of these is persistence or credential theft, not output.
+FORBIDDEN_HOME = ("~/.ssh", "~/.aws", "~/.gnupg", "~/.kube", "~/.docker", "~/.azure",
+                  "~/.config/gh", "~/.config/gcloud", "~/.config/hermes", "~/.hermes",
+                  "~/.config/autostart", "~/.local/bin")
+FORBIDDEN_HOME_FILES = ("~/.netrc", "~/_netrc", "~/.pgpass", "~/.npmrc", "~/.pypirc",
+                        "~/.git-credentials", "~/.bashrc", "~/.zshrc", "~/.profile",
+                        "~/.bash_profile", "~/.zprofile")
 
 
 def _write_allowed(path: str) -> str | None:
@@ -452,16 +473,20 @@ def _write_allowed(path: str) -> str | None:
 
     An encoder is not a privilege boundary, but writing a deliverable into /etc or
     ~/.ssh is never what a user meant, and a model mistyping a path should be
-    corrected rather than obeyed.
+    corrected rather than obeyed. realpath (not just abspath) so a symlink with
+    an innocuous name cannot alias a credential store.
     """
-    ap = os.path.abspath(os.path.expanduser(path))
+    ap = os.path.realpath(os.path.expanduser(str(path)))
     for bad in FORBIDDEN_WRITE:
         if ap == bad or ap.startswith(bad + os.sep):
             return f"refusing to write under {bad}"
     for bad in FORBIDDEN_HOME:
-        b = os.path.abspath(os.path.expanduser(bad))
+        b = os.path.realpath(os.path.expanduser(bad))
         if ap == b or ap.startswith(b + os.sep):
             return f"refusing to write under {bad}"
+    for bad in FORBIDDEN_HOME_FILES:
+        if ap == os.path.realpath(os.path.expanduser(bad)):
+            return f"refusing to write to {bad}"
     return None
 
 
@@ -772,6 +797,21 @@ def h_ledger(args: dict) -> str:
 
 
 # ------------------------------------------------------------------ motion design
+def resolve_motion_out(args: dict, mid: str | None = None) -> str:
+    """The file klieg_motion will write.
+
+    The approval hook calls this before the handler runs (mid=None): an
+    unspecified preview out is named by its default pattern, because the
+    random id does not exist yet. render has no default - the handler refuses
+    a missing out - so the prompt says so instead of inventing a destination.
+    """
+    if args.get("out"):
+        return resolve_write_path(args["out"])
+    if str(args.get("action") or "").lower() == "preview":
+        return os.path.join(core.data_dir(), "motion", f"preview-{mid or '<id>'}.png")
+    return "<out is required>"
+
+
 def _motion_scene(args: dict):
     """Resolve a scene to (html, width, height, duration, error)."""
     spec = None
@@ -840,7 +880,7 @@ def h_motion(args: dict) -> str:
             t = float(args.get("t", dur / 2))
         except (TypeError, ValueError):
             return _j({"error": "t must be a number"})
-        out = os.path.abspath(os.path.expanduser(args["out"])) if args.get("out") else os.path.join(mdir, f"preview-{mid}.png")
+        out = resolve_motion_out(args, mid)
         if args.get("out"):
             refusal = _write_allowed(out)
             if refusal:
@@ -854,7 +894,7 @@ def h_motion(args: dict) -> str:
 
     if not args.get("out"):
         return _j({"error": "out is required"})
-    out = os.path.abspath(os.path.expanduser(args["out"]))
+    out = resolve_motion_out(args)
     refusal = _write_allowed(out)
     if refusal:
         return _j({"error": refusal, "out": out})

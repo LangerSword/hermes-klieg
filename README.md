@@ -164,8 +164,9 @@ Read `SECURITY.md` before you install.
 
 - Children get a 13-variable environment allow-list.
 - Klieg drops any name that matches KEY, TOKEN, SECRET, or PASSWORD. It records the drop.
-- `klieg_publish` and `klieg_colour write` refuse to write under `/etc`, `/usr`, `~/.ssh`,
-  and `~/.aws`.
+- `klieg_render`, `klieg_publish`, `klieg_colour write`, and `klieg_motion render/preview`
+  refuse to write under system paths (`/etc`, `/usr`, …) and credential/persistence paths
+  (`~/.ssh`, `~/.aws`, `~/.config/gh`, shell rc files, `~/.config/autostart`, `~/.local/bin`, …).
 - Klieg is not a sandbox. An approved script is arbitrary code.
 
 ## Stack

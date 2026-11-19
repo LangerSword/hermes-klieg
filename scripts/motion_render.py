@@ -14,9 +14,18 @@ from __future__ import annotations
 
 import argparse
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
+
+# The plugin root, so the frame work dir can live in the plugin data dir.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+try:  # loaded as a Hermes plugin package
+    from .. import klieg_core as core
+except ImportError:  # run as a script (the normal path) or standalone
+    import klieg_core as core
 
 
 def _browser(p):
@@ -31,9 +40,10 @@ def _seek(page, t):
 
 def render_frames(html: Path, frames: Path, fps: int, duration: float, w: int, h: int):
     from playwright.sync_api import sync_playwright
+    # `frames` is a fresh, exclusively-owned temp dir (see main): nothing here
+    # may delete pre-existing files, because a predictable work-dir name once
+    # emptied a user folder that happened to match it.
     frames.mkdir(parents=True, exist_ok=True)
-    for f in frames.iterdir():
-        f.unlink()
     n = int(round(duration * fps))
     with sync_playwright() as p:
         b = _browser(p)
@@ -127,16 +137,19 @@ def main() -> int:
         print("preview", out, flush=True)
         return 0
 
-    work = out.parent / (out.stem + "_frames")
-    n = render_frames(html, work, a.fps, a.duration, a.width, a.height)
-    print("frames done", n, flush=True)
-    if a.format == "gif":
-        to_gif(work, out, a.fps, a.width)
-    else:
-        to_mp4(work, out, a.fps, a.music, a.duration)
-    for f in work.iterdir():
-        f.unlink()
-    work.rmdir()
+    # A fresh unique dir under the plugin data dir, never a predictable name
+    # next to the output: <out stem>_frames could be a user's own folder, and
+    # the old code emptied it before and after every render.
+    work = Path(tempfile.mkdtemp(prefix="motion-frames-", dir=core.data_dir()))
+    try:
+        n = render_frames(html, work, a.fps, a.duration, a.width, a.height)
+        print("frames done", n, flush=True)
+        if a.format == "gif":
+            to_gif(work, out, a.fps, a.width)
+        else:
+            to_mp4(work, out, a.fps, a.music, a.duration)
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
     print("motion", out, out.stat().st_size, flush=True)
     return 0
 
