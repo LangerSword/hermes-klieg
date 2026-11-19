@@ -104,8 +104,15 @@ class StructuredErrors(unittest.TestCase):
         self.assertIn("invalid frame spec", obj["error"])
 
     def test_timeout_is_data_with_a_hint(self):
-        with mock.patch.object(tools.core, "run_child",
+        # Stub the adapter to found=True so the timeout path is reached even on
+        # a host without Blender (CI); otherwise detect() short-circuits first.
+        with mock.patch.object(tools.A, "get") as g, \
+             mock.patch.object(tools.core, "run_child",
                                side_effect=subprocess.TimeoutExpired("blender", 1)):
+            ad = mock.Mock()
+            ad.detect.return_value = {"found": True}
+            ad.run_argv.return_value = ["blender", "-b", "-P", "x.py"]
+            g.return_value = ad
             obj = call(tools.h_run, {"script": self.script, "timeout": 1})
         self.assertIn("timed out", obj.get("error") or "")
         self.assertIn("bg=true", obj.get("hint") or "")
